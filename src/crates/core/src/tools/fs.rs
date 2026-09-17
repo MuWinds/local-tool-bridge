@@ -174,7 +174,9 @@ fn decode(bytes: &[u8], encoding: &str) -> std::result::Result<String, String> {
                 return Err("odd byte count for UTF-16LE".into());
             }
             let units: Vec<u16> = bytes
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
                 .collect();
             String::from_utf16(&units).map_err(|error| error.to_string())

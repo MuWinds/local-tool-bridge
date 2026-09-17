@@ -65,8 +65,7 @@ fn canonicalize_for_comparison(path: &Path) -> PathBuf {
         }
     }
 
-    let mut out = dunce::canonicalize(existing)
-        .unwrap_or_else(|_| lexical_normalize(existing));
+    let mut out = dunce::canonicalize(existing).unwrap_or_else(|_| lexical_normalize(existing));
     for component in suffix.iter().rev() {
         out.push(component);
     }
