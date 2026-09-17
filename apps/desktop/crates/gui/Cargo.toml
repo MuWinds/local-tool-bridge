@@ -29,10 +29,3 @@ open.workspace = true
 uuid.workspace = true
 rfd = "0.15"
 async-trait = "0.1"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = [
-    "Win32_Foundation",
-    "Win32_System_Registry",
-    "Win32_UI_WindowsAndMessaging",
-] }

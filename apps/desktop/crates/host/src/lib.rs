@@ -3,7 +3,6 @@
 pub mod http;
 pub mod mcp;
 pub mod mcp_servers;
-pub mod native;
 pub mod tunnel;
 pub mod websocket;
 

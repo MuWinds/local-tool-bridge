@@ -107,7 +107,7 @@ export interface ToolCallParams {
 }
 
 export interface ApprovalChallenge {
-  /** Opaque token the extension returns to `tools.approve`. */
+  /** Opaque token identifying this challenge. */
   token: string;
   tool: string;
   arguments: Record<string, unknown>;
@@ -134,7 +134,7 @@ export interface ToolsListResult {
 
 export interface HostCapabilities {
   /** Transport channels the host is currently serving. */
-  transports: Array<"websocket" | "native-messaging">;
+  transports: Array<"websocket">;
   /** Tools the host can actually execute right now. */
   availableTools: string[];
   /** True when the host can render an approval prompt to a human. */
@@ -146,9 +146,9 @@ export interface HostCapabilities {
 export interface HelloParams {
   protocolVersion: string;
   clientVersion: string;
-  /** Extension id, used by the host to bind the native messaging allowlist. */
+  /** Client identifier, recorded in the audit log. */
   clientId: string;
-  transports: Array<"websocket" | "native-messaging">;
+  transports: Array<"websocket">;
 }
 
 export interface HelloResult {
@@ -160,45 +160,34 @@ export interface HelloResult {
   sessionId: string;
 }
 
-/** Methods the extension may invoke on the host. */
+/** Methods a client may invoke on the host. */
 export const HostMethod = {
   Hello: "bridge.hello",
   Ping: "bridge.ping",
   ToolsList: "tools.list",
   ToolsCall: "tools.call",
-  ToolsApprove: "tools.approve",
   PolicyGet: "policy.get",
   PolicySet: "policy.set",
 } as const;
 
 export type HostMethod = (typeof HostMethod)[keyof typeof HostMethod];
 
-/** Notifications the host pushes to the extension without being asked. */
+/** Notifications the host pushes to connected clients without being asked. */
 export const HostNotification = {
-  /** Policy changed in the GUI; the extension should re-read the tool list. */
+  /** Policy changed in the GUI; clients should re-read the tool list. */
   PolicyChanged: "bridge.policyChanged",
-  /** Host is shutting down; the extension should mark itself disconnected. */
+  /** Host is shutting down; clients should mark themselves disconnected. */
   ShuttingDown: "bridge.shuttingDown",
-  /** A tool call started, for live progress UI in the page. */
+  /** A tool call started, for live progress UI. */
   CallStarted: "tools.callStarted",
-  /** A tool call finished, for live progress UI in the page. */
+  /** A tool call finished, for live progress UI. */
   CallFinished: "tools.callFinished",
 } as const;
 
 export type HostNotification = (typeof HostNotification)[keyof typeof HostNotification];
 
-/** Methods the host may invoke on the extension. */
-export const ClientMethod = {
-  /** Host asks the page to display an approval prompt. */
-  RequestApproval: "client.requestApproval",
-  /** Host reports a state change for the in-page indicator. */
-  StatusChanged: "client.statusChanged",
-} as const;
-
-export type ClientMethod = (typeof ClientMethod)[keyof typeof ClientMethod];
-
 /** The current bridge protocol version. Bump on any breaking wire change. */
 export const PROTOCOL_VERSION = "0.1.0";
 
-/** Correlation id used by the extension for calls it originates. */
+/** Correlation id used by a client for calls it originates. */
 export type CallId = JsonRpcId;

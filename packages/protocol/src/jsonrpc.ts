@@ -1,9 +1,9 @@
 /**
  * JSON-RPC 2.0 envelopes used on every hop of the bridge.
  *
- * The exact same envelope travels over both transports (local WebSocket and
- * Chrome native messaging), so the Rust host and the extension can share a
- * single dispatcher and a single set of error semantics.
+ * The exact same envelope travels over every transport (local WebSocket and
+ * HTTP), so the Rust host and any client can share a single dispatcher and a
+ * single set of error semantics.
  *
  * Keep the wire shape in sync with `crates/host/src/rpc.rs`.
  */

@@ -7,16 +7,10 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use ltb_host::{
-    build_dispatcher, load_or_create_secret, load_policy, native, run_http, run_mcp, run_websocket,
-};
+use ltb_host::{build_dispatcher, load_or_create_secret, load_policy, run_http, run_mcp, run_websocket};
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "ltb-host",
-    about = "Local tool bridge for the AI web app",
-    version
-)]
+#[command(name = "ltb-host", about = "Local MCP tool bridge", version)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -44,14 +38,12 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Serve the loopback HTTP transport (default; recommended for extensions).
+    /// Serve the loopback HTTP transport (default).
     Serve,
     /// Serve the loopback WebSocket transport.
     ServeWs,
     /// Serve the loopback MCP (Model Context Protocol) transport.
     ServeMcp,
-    /// Serve Chrome native messaging on stdio only.
-    Native,
     /// Print the effective policy as JSON and exit.
     DumpPolicy,
 }
@@ -60,15 +52,13 @@ enum Command {
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
-    // Native mode owns stdout, so logging goes to stderr exclusively.
-    let is_native = matches!(cli.command, Some(Command::Native));
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .with_writer(std::io::stderr)
-        .with_ansi(!is_native)
+        .with_ansi(true)
         .init();
 
     if cli.print_secret {
@@ -109,15 +99,6 @@ async fn main() -> std::process::ExitCode {
     let command = cli.command.unwrap_or(Command::Serve);
 
     match command {
-        Command::Native => {
-            tracing::info!("serving Chrome native messaging on stdio");
-            let stdin = tokio::io::stdin();
-            let stdout = tokio::io::stdout();
-            if let Err(error) = native::serve(stdin, stdout, dispatcher).await {
-                tracing::error!(%error, "native messaging transport failed");
-                return std::process::ExitCode::FAILURE;
-            }
-        }
         Command::Serve | Command::ServeWs | Command::ServeMcp | Command::DumpPolicy => {
             let secret = match load_or_create_secret() {
                 Ok(secret) => secret,
@@ -150,7 +131,7 @@ async fn main() -> std::process::ExitCode {
             };
 
             // Printed once at startup so a user running the host by hand can
-            // paste the token into the extension. Never logged by a transport.
+            // paste the token into an MCP client. Never logged by a transport.
             if serve_mcp {
                 println!("ltb-host MCP listening on http://{address}/mcp");
             } else if serve_websocket {

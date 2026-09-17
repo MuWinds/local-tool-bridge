@@ -11,12 +11,11 @@
 //! Keeping this sequence in one function is deliberate: split across callers,
 //! one of them eventually forgets the policy check.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use tokio::sync::{oneshot, Mutex, RwLock};
+use tokio::sync::RwLock;
 
 use crate::audit::{now_rfc3339, redact_arguments, AuditEntry, AuditLog, AuditOutcome};
 use crate::error::{code, BridgeError, Result};
@@ -24,18 +23,17 @@ use crate::policy::{Effect, Policy, PolicyEngine, Verdict};
 use crate::rpc::{Incoming, JsonRpcFailure, JsonRpcSuccess, PROTOCOL_VERSION};
 use crate::tools::{ToolContext, ToolRegistry};
 
-/// Methods the extension may invoke.
+/// Methods a client may invoke.
 pub mod method {
     pub const HELLO: &str = "bridge.hello";
     pub const PING: &str = "bridge.ping";
     pub const TOOLS_LIST: &str = "tools.list";
     pub const TOOLS_CALL: &str = "tools.call";
-    pub const TOOLS_APPROVE: &str = "tools.approve";
     pub const POLICY_GET: &str = "policy.get";
     pub const POLICY_SET: &str = "policy.set";
 }
 
-/// Notifications the host pushes to the extension.
+/// Notifications the host pushes to connected clients.
 pub mod notification {
     pub const POLICY_CHANGED: &str = "bridge.policyChanged";
     pub const SHUTTING_DOWN: &str = "bridge.shuttingDown";
@@ -102,20 +100,12 @@ impl Approver for DenyAllApprover {
 ///
 /// This is supplied by the *transport*, never by the message body: a peer that
 /// could assert its own trustworthiness over the wire would defeat the point.
+///
+/// The caller must prove itself with the shared secret in `bridge.hello`.
+/// Every loopback transport sets this: any local process can open a socket, so
+/// possession of the token is the actual authorisation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeerTrust {
-    /// The transport has already authenticated the caller.
-    ///
-    /// Chrome native messaging sets this: the browser only launches a host
-    /// binary named in that extension's manifest, so the OS-level launch is the
-    /// authentication. Requiring a shared secret on top would make the transport
-    /// unusable, since Chrome never sends one.
-    Verified,
-    /// The caller must prove itself with the shared secret in `bridge.hello`.
-    ///
-    /// The loopback WebSocket sets this: any local process (including a web page
-    /// that guesses the port) can open a socket, so possession of the token is
-    /// the actual authorisation.
     Untrusted,
 }
 
@@ -125,8 +115,6 @@ pub struct Dispatcher {
     policy: RwLock<PolicyEngine>,
     audit: Arc<AuditLog>,
     approver: RwLock<Arc<dyn Approver>>,
-    /// Pending approval challenges, keyed by token.
-    pending: Mutex<HashMap<String, oneshot::Sender<ApprovalDecision>>>,
     /// Set once the handshake succeeds.
     authenticated: RwLock<bool>,
     /// Expected shared secret for the WebSocket transport.
@@ -148,7 +136,6 @@ impl Dispatcher {
             policy: RwLock::new(policy),
             audit,
             approver: RwLock::new(Arc::new(DenyAllApprover)),
-            pending: Mutex::new(HashMap::new()),
             authenticated: RwLock::new(false),
             secret,
             events,
@@ -230,7 +217,6 @@ impl Dispatcher {
             method::PING => Ok(json!({ "pong": true, "at": now_rfc3339() })),
             method::TOOLS_LIST => self.handle_tools_list().await,
             method::TOOLS_CALL => self.handle_tools_call(params).await,
-            method::TOOLS_APPROVE => self.handle_tools_approve(params).await,
             method::POLICY_GET => Ok(serde_json::to_value(self.policy_snapshot().await)
                 .map_err(|e| BridgeError::internal(e.to_string()))?),
             method::POLICY_SET => self.handle_policy_set(params).await,
@@ -278,7 +264,7 @@ impl Dispatcher {
 
         let policy = self.policy.read().await;
         let approver = self.approver.read().await;
-        let transports = vec!["websocket", "native-messaging"];
+        let transports = vec!["websocket"];
 
         Ok(json!({
             "protocolVersion": PROTOCOL_VERSION,
@@ -508,36 +494,6 @@ impl Dispatcher {
         Ok(payload)
     }
 
-    /// Resolves a pending approval challenge.
-    async fn handle_tools_approve(&self, params: Option<Value>) -> Result<Value> {
-        let params = params.ok_or_else(|| BridgeError::invalid_params("Missing `params`"))?;
-        let token = params
-            .get("token")
-            .and_then(Value::as_str)
-            .ok_or_else(|| BridgeError::invalid_params("Missing `token`"))?
-            .to_string();
-        let approved = params
-            .get("approved")
-            .and_then(Value::as_bool)
-            .ok_or_else(|| BridgeError::invalid_params("Missing `approved`"))?;
-        let remember = params
-            .get("scope")
-            .and_then(Value::as_str)
-            .map(|scope| scope == "always")
-            .unwrap_or(false);
-
-        let sender = self.pending.lock().await.remove(&token);
-        match sender {
-            Some(sender) => {
-                let _ = sender.send(ApprovalDecision { approved, remember });
-                Ok(json!({ "accepted": true }))
-            }
-            None => Err(BridgeError::invalid_params(
-                "That approval token is unknown or has already been resolved",
-            )),
-        }
-    }
-
     async fn handle_policy_set(&self, params: Option<Value>) -> Result<Value> {
         let params = params.ok_or_else(|| BridgeError::invalid_params("Missing `params`"))?;
         let policy: Policy =
@@ -575,37 +531,10 @@ impl Dispatcher {
             expires_at: now_epoch_millis() + APPROVAL_TTL.as_millis() as u64,
         };
 
-        let (sender, receiver) = oneshot::channel();
-        self.pending.lock().await.insert(token.clone(), sender);
-
-        // Two independent paths can answer this challenge, and whichever replies
-        // first wins:
-        //
-        // 1. The native `Approver` — the GUI window, which draws a modal.
-        // 2. The extension, via `tools.approve` — an in-page prompt.
-        //
-        // Both are raced rather than sequenced, because a user may have either
-        // surface in front of them. Registering the token *before* notifying
-        // either path closes the race where a fast answer arrives before the
-        // token exists.
-        let _ = self.events.send(json!({
-            "jsonrpc": "2.0",
-            "method": "client.requestApproval",
-            "params": challenge
-        }));
-
-        let native = approver.request(&challenge);
-        tokio::pin!(native);
-
-        let decision = tokio::select! {
-            decision = &mut native => decision,
-            answer = receiver => answer.ok(),
-            _ = tokio::time::sleep(APPROVAL_TTL) => None,
-        };
-
-        // Drop the entry if it timed out, so the map cannot grow unbounded.
-        self.pending.lock().await.remove(&token);
-        decision
+        tokio::time::timeout(APPROVAL_TTL, approver.request(&challenge))
+            .await
+            .ok()
+            .flatten()
     }
 
     /// Persists an allow rule for a call the user chose to remember.

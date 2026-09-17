@@ -4,13 +4,15 @@
 //! rather than embedding or launching the Go `tunnel-client`.  The bridge only
 //! needs the core customer-side path:
 //!
-//!     OpenAI control plane
-//!          │ GET /v1/tunnels/{id}/poll
-//!          ▼
-//!     Rust tunnel runtime
-//!          │ POST /mcp / DELETE /mcp
-//!          ▼
-//!     local-tool-bridge MCP dispatcher
+//! ```text
+//! OpenAI control plane
+//!      │ GET /v1/tunnels/{id}/poll
+//!      ▼
+//! Rust tunnel runtime
+//!      │ POST /mcp / DELETE /mcp
+//!      ▼
+//! local-tool-bridge MCP dispatcher
+//! ```
 //!
 //! The protocol is documented by OpenAI in `docs/protocol.md` and
 //! `docs/openapi.json`.  This implementation intentionally does not copy the

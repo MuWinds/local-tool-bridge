@@ -1,8 +1,8 @@
 //! `ltb-core` — the transport-agnostic core of the local tool bridge.
 //!
-//! Nothing in this crate knows whether it is talking to a WebSocket or to
-//! Chrome's native messaging stdio: both feed the same `Dispatcher`, which owns
-//! validation, policy, approval, execution, and audit.
+//! Nothing in this crate knows which transport a call arrived on: every loopback
+//! transport feeds the same `Dispatcher`, which owns validation, policy,
+//! approval, execution, and audit.
 //!
 //! The GUI depends on this crate too, which is why it must stay free of any
 //! windowing or platform-specific code.

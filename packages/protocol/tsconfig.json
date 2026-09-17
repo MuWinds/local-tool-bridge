@@ -3,8 +3,8 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    // "DOM" is here only for the global TextEncoder/TextDecoder used by
-    // `framing.ts`. Nothing in this package may touch window or document; the
+    // "DOM" is here only for the global TextEncoder/TextDecoder used by the
+    // wire code. Nothing in this package may touch window or document; the
     // Rust host consumes the same wire format.
     "lib": ["ES2022", "DOM"],
     "types": []

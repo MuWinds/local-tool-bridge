@@ -8,7 +8,6 @@
 mod app;
 mod approver;
 mod fonts;
-mod install;
 mod ui;
 
 use std::sync::Arc;

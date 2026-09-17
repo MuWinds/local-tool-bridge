@@ -156,13 +156,6 @@ fn draw_status(app: &mut BridgeApp, ui: &mut egui::Ui) {
                     .unwrap_or_else(|| "未启动".into()),
             );
             ui.end_row();
-            ui.label("Native Messaging");
-            ui.label(if app.native_registered {
-                "已注册"
-            } else {
-                "未注册"
-            });
-            ui.end_row();
             ui.label("Secure MCP Tunnel");
             ui.label(if app.tunnel_process.is_some() {
                 "已运行"
@@ -504,54 +497,6 @@ fn draw_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
     if let Some(path) = ltb_host::mcp_servers::config_path() {
         ui.label(
             RichText::new(format!("配置文件：{}", path.display()))
-                .monospace()
-                .small(),
-        );
-    }
-    ui.add_space(16.0);
-    ui.separator();
-    ui.heading("Native Messaging");
-    ui.horizontal(|ui| {
-        ui.label("扩展 ID");
-        ui.add(
-            egui::TextEdit::singleline(&mut app.new_host)
-                .desired_width(300.0)
-                .hint_text("chrome://extensions"),
-        );
-    });
-    ui.horizontal(|ui| {
-        if ui.button("注册宿主").clicked() {
-            match std::env::current_exe() {
-                Ok(exe) => {
-                    let host = exe.with_file_name(if cfg!(windows) {
-                        "ltb-host.exe"
-                    } else {
-                        "ltb-host"
-                    });
-                    match crate::install::install(&host, app.new_host.trim()) {
-                        Ok(path) => {
-                            app.native_registered = true;
-                            app.toast = Some((format!("已注册：{}", path.display()), true));
-                        }
-                        Err(e) => app.toast = Some((format!("注册失败：{e}"), false)),
-                    }
-                }
-                Err(e) => app.toast = Some((format!("无法定位程序：{e}"), false)),
-            }
-        }
-        if ui.button("取消注册").clicked() {
-            match crate::install::uninstall() {
-                Ok(()) => {
-                    app.native_registered = false;
-                    app.toast = Some(("已取消注册".into(), true));
-                }
-                Err(e) => app.toast = Some((format!("取消注册失败：{e}"), false)),
-            }
-        }
-    });
-    if let Some(path) = crate::install::manifest_path() {
-        ui.label(
-            RichText::new(format!("宿主清单：{}", path.display()))
                 .monospace()
                 .small(),
         );

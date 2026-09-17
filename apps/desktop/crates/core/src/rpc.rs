@@ -1,8 +1,8 @@
 //! JSON-RPC 2.0 envelopes.
 //!
-//! Byte-compatible with `packages/protocol/src/jsonrpc.ts`. Both transports
-//! (loopback WebSocket and Chrome native messaging) carry these unchanged, so
-//! there is exactly one dispatcher and one set of error semantics.
+//! Byte-compatible with `packages/protocol/src/jsonrpc.ts`. Every loopback
+//! transport carries these unchanged, so there is exactly one dispatcher and
+//! one set of error semantics.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

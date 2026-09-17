@@ -26,7 +26,7 @@ OpenAI Secure MCP Tunnel 控制面  ── 长轮询 ──►  tunnel-client（
                                       授权弹窗 / 策略编辑 / 审计查看
 ```
 
-宿主还提供 HTTP、WebSocket 与 Native Messaging 传输，供本地其他客户端使用（`ltb-host serve` / `serve-ws` / `native`）。
+宿主还提供 HTTP 与 WebSocket 传输，供本地其他客户端使用（`ltb-host serve` / `serve-ws`）。
 
 ---
 
@@ -85,7 +85,6 @@ cd apps/desktop && cargo build --release
 ./ltb-host serve-mcp        # MCP，默认 http://127.0.0.1:8789/mcp（ChatGPT 接入）
 ./ltb-host serve            # HTTP，默认 http://127.0.0.1:8788/rpc
 ./ltb-host serve-ws         # WebSocket
-./ltb-host native           # Native Messaging
 ./ltb-host --print-secret   # 只打印令牌
 ```
 
@@ -139,7 +138,7 @@ ChatGPT Connector → OpenAI 隧道服务 → tunnel-client（本机）→ ltb-h
 
 每个工具都可以单独设为「允许 / 需确认 / 禁止」。
 
-> **关于 `lineNumbers`**：带行号的视图每行输出一个 `\n`，因此无法保留 CRLF 或"文件末尾没有换行"这两个细节。如果模型打算读出来再写回去，应当使用 `lineNumbers: false` —— 那种模式下返回的是原文本身，没有任何前缀或改写。这条差异由 `scripts/smoke-binary-mode.mjs` 的 8 个逐字节用例守着。
+> **关于 `lineNumbers`**：带行号的视图每行输出一个 `\n`，因此无法保留 CRLF 或"文件末尾没有换行"这两个细节。如果模型打算读出来再写回去，应当使用 `lineNumbers: false` —— 那种模式下返回的是原文本身，没有任何前缀或改写。这条差异在实现里由 `split_inclusive('\n')` 保证（见下「其四」）。
 
 ---
 
@@ -151,17 +150,15 @@ local-tool-bridge/
 │   ├── chatgpt-mcp.md          # ChatGPT 接入（OpenAI Secure MCP Tunnel）完整指南
 │   ├── mcp-servers.md          # 外部 stdio MCP 服务器接入
 │   └── tunnel-client.chatgpt.yaml   # tunnel-client 配置样例
-├── packages/protocol/          # 共享协议：JSON-RPC、工具目录、Native Messaging 帧协议
+├── packages/protocol/          # 共享协议：JSON-RPC、工具目录
 ├── apps/desktop/               # Rust 工作区
 │   └── crates/
 │       ├── core/               # 策略引擎、路径沙箱、工具、审计、调度
-│       ├── host/               # HTTP / WebSocket / Native Messaging / MCP 传输
+│       ├── host/               # HTTP / WebSocket / MCP 传输
 │       │   └── src/mcp.rs      # MCP Streamable HTTP 端点（ChatGPT 接入）
 │       └── gui/                # egui 控制面板（含 MCP 状态显示）
 └── scripts/                    # 端到端冒烟测试（驱动真实二进制、真实线协议）
     ├── smoke-http.mjs          # HTTP 传输：健康检查、令牌、Origin、真实调用
-    ├── smoke-native.mjs        # Native Messaging：握手、工具调用、路径越界、拒绝名单
-    ├── smoke-binary-mode.mjs   # 换行符与多字节字符的逐字节完整性
     └── smoke-mcp.mjs           # MCP 握手、server/discover、会话、工具发现、真实调用、失败形态
 ```
 
@@ -177,9 +174,7 @@ cd apps/desktop && cargo test
 pnpm build:protocol && pnpm --filter @dlb/protocol typecheck
 
 # 端到端：驱动真实二进制，走真实线协议（需先 cargo build）
-node scripts/smoke-native.mjs        # 15 项：握手、工具调用、路径越界、拒绝名单
 node scripts/smoke-http.mjs          # 12 项：健康检查、令牌、Origin、真实调用
-node scripts/smoke-binary-mode.mjs   # 17 项：换行符与多字节字符的逐字节完整性
 node scripts/smoke-mcp.mjs           # 28 项：MCP 握手、server/discover、会话、工具发现、真实调用、失败形态
 ```
 
@@ -187,19 +182,15 @@ node scripts/smoke-mcp.mjs           # 28 项：MCP 握手、server/discover、�
 
 ---
 
-## 开发笔记：测试抓到的四个真实缺陷
+## 开发笔记：测试抓到的三个真实缺陷
 
 留在这里是因为它们说明了哪些地方最容易出错。
 
 **其一：控制面板的中文全是豆腐块。** `eframe` 的 `default_fonts` 只带 Ubuntu-Light 与 NotoEmoji，两者都不含任何 CJK 字形，于是界面里每一个汉字都渲染成 `□`。这个缺陷的形态很有迷惑性：令牌、`127.0.0.1`、`fs.read_file` 这类 ASCII 全部正常，只有中文坏掉 —— 看起来像控件坏了，而不是字体缺字。修复方式是首帧之前挂上一份系统中文字体（`apps/desktop/crates/gui/src/fonts.rs`），并且**追加**到字体族末尾而不是替换：追加才能让英文沿用原本的排版度量，只对 Ubuntu 覆盖不到的字形回退。之所以用系统字体而不是内嵌，是因为内嵌一份 CJK 字体会让二进制膨胀 10–20 MB，对控制面板来说代价过高；找不到字体时程序照常启动，只是回到原来的样子。
 
-**其二：审批链路从未被接通。** `request_approval` 注册了一个等待扩展回答的通道，却**从未调用 `Approver`**。结果是控制面板的授权弹窗永远不会出现，每个"需确认"的调用都会干等满 180 秒然后被拒绝。单元测试全绿 —— 因为没有任何一个测试真正走完过带审批的完整调用。加上集成测试后立刻暴露：三个测试各挂起 60 秒以上。修复后 15 个测试在 0.14 秒内跑完。
+**其二：审批链路从未被接通。** `request_approval` 注册了一个等待审批结果的通道，却**从未调用 `Approver`**。结果是控制面板的授权弹窗永远不会出现，每个"需确认"的调用都会干等满 180 秒然后被拒绝。单元测试全绿 —— 因为没有任何一个测试真正走完过带审批的完整调用。加上集成测试后立刻暴露：三个测试各挂起 60 秒以上。修复后 15 个测试在 0.14 秒内跑完。
 
-**其三：Native Messaging 的信任模型搞错了。** 最初要求 Native Messaging 也提供共享令牌，但 Chrome **从不发送**这个令牌 —— 它通过"只启动清单里登记的宿主"来完成认证。于是这条传输永远无法完成握手。修复方式是把信任判断交给**传输层**声明（`PeerTrust::Verified` / `Untrusted`），而不是由消息内容自证。
-
-**其四：`fs.read_file` 会悄悄改写行尾。** 最初用 `str::lines()` 切分，它会吃掉 `\r\n` 里的 `\r`，也会给"末尾没有换行"的文件补一个。模型读一个 CRLF 文件再写回去，就会把整个文件的行尾改掉。改用 `split_inclusive('\n')` 保留原始终止符，并加了 `lineNumbers: false` 这个逐字节模式。
-
-顺带澄清一个**不适用**的担忧：Windows 上 C 运行时的文本模式会把 `\n` 改写成 `\r\n`，从而破坏长度前缀、让整个通道永久失步 —— 这是 Native Messaging 最经典的故障。本项目不受影响（Rust 的标准库直接做二进制 I/O，不经过那个转换层），但这属于"必须实测而非假设"的结论，所以 `smoke-binary-mode.mjs` 里有一项专门断言帧缓冲没有残留字节。
+**其三：`fs.read_file` 会悄悄改写行尾。** 最初用 `str::lines()` 切分，它会吃掉 `\r\n` 里的 `\r`，也会给"末尾没有换行"的文件补一个。模型读一个 CRLF 文件再写回去，就会把整个文件的行尾改掉。改用 `split_inclusive('\n')` 保留原始终止符，并加了 `lineNumbers: false` 这个逐字节模式。
 
 ---
 

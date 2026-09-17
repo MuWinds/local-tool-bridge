@@ -75,7 +75,7 @@ async fn call(
     let envelope = decode_jsonrpc(&raw).expect("valid json");
     let incoming = classify(envelope).expect("valid envelope");
     dispatcher
-        .handle(incoming, PeerTrust::Verified)
+        .handle(incoming, PeerTrust::Untrusted)
         .await
         .expect("a request must produce a reply")
 }
