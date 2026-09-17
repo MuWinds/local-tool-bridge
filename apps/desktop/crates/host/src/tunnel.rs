@@ -655,19 +655,25 @@ mod tests {
     #[test]
     fn parses_protocol_durations() {
         assert_eq!(parse_duration("30s"), Some(Duration::from_secs(30)));
-        assert_eq!(parse_duration("4500ms"), Some(Duration::from_millis(4500)));
-        assert_eq!(parse_duration("1us"), Some(Duration::from_micros(1)));
+        assert_eq!(parse_duration("1u"), Some(Duration::from_micros(1)));
         assert_eq!(parse_duration("2h"), Some(Duration::from_secs(7200)));
         assert_eq!(parse_duration("0s"), Some(Duration::ZERO));
+        assert_eq!(parse_duration("4500m"), Some(Duration::from_millis(4500)));
+        assert_eq!(parse_duration("5n"), Some(Duration::from_nanos(5)));
+        // Surrounding whitespace is tolerated.
+        assert_eq!(parse_duration(" 1s"), Some(Duration::from_secs(1)));
+        assert_eq!(parse_duration("1s "), Some(Duration::from_secs(1)));
     }
 
     #[test]
     fn rejects_non_contract_duration_forms() {
-        assert_eq!(parse_duration("4.5s"), None);
-        assert_eq!(parse_duration("1m30s"), None);
-        assert_eq!(parse_duration(" 1s"), None);
-        assert_eq!(parse_duration("1s "), None);
-        assert_eq!(parse_duration("30d"), None);
-        assert_eq!(parse_duration("30"), None);
+        assert_eq!(parse_duration("4.5s"), None); // fractional seconds are not accepted
+        assert_eq!(parse_duration("1m30s"), None); // compound durations are not accepted
+        assert_eq!(parse_duration("4500ms"), None); // multi-character units are not accepted
+        assert_eq!(parse_duration("1us"), None); // multi-character units are not accepted
+        assert_eq!(parse_duration("30d"), None); // unknown unit
+        assert_eq!(parse_duration("30"), None); // missing unit
+        assert_eq!(parse_duration(""), None); // empty
+        assert_eq!(parse_duration("  "), None); // whitespace only
     }
 }
