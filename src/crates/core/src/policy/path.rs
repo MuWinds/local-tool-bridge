@@ -43,6 +43,36 @@ pub struct PathSandbox {
     roots: Vec<PathBuf>,
 }
 
+/// Canonicalises the existing portion of a path while preserving nonexistent
+/// trailing components. This keeps containment checks useful for write targets
+/// without losing symlink-aware comparisons on platforms such as macOS.
+fn canonicalize_for_comparison(path: &Path) -> PathBuf {
+    if let Ok(canonical) = dunce::canonicalize(path) {
+        return canonical;
+    }
+
+    let mut existing = path;
+    let mut suffix = Vec::new();
+
+    while !existing.exists() {
+        match existing.file_name() {
+            Some(name) => suffix.push(name.to_os_string()),
+            None => break,
+        }
+        match existing.parent() {
+            Some(parent) => existing = parent,
+            None => break,
+        }
+    }
+
+    let mut out = dunce::canonicalize(existing)
+        .unwrap_or_else(|_| lexical_normalize(existing));
+    for component in suffix.iter().rev() {
+        out.push(component);
+    }
+    lexical_normalize(&out)
+}
+
 impl PathSandbox {
     pub fn new(roots: impl IntoIterator<Item = PathBuf>) -> Self {
         // Canonicalise eagerly so a root that does not exist yet (or is given
@@ -119,17 +149,20 @@ impl PathSandbox {
         Ok(canonical)
     }
 
-    /// Checks containment without touching the filesystem.
+    /// Checks containment using the canonical location of the existing portion
+    /// of the path.
     ///
-    /// Used for paths that may not exist yet, and as a second opinion after
-    /// canonicalisation.
+    /// This handles platforms such as macOS where a system temporary-directory
+    /// path can contain a symlink (for example `/var` -> `/private/var`). For a
+    /// path that does not exist yet, only its deepest existing ancestor is
+    /// canonicalised and the remaining components are appended lexically.
     pub fn assert_contained(&self, path: &Path) -> Result<()> {
         if self.roots.is_empty() {
             return Err(BridgeError::path_not_allowed(
                 "No workspace root is configured; set one in the bridge settings",
             ));
         }
-        let normalised = lexical_normalize(path);
+        let normalised = canonicalize_for_comparison(path);
 
         let allowed = self.roots.iter().any(|root| normalised.starts_with(root));
         if allowed {
