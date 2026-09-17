@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::error::{code, BridgeError};
+use crate::error::{BridgeError, code};
 
 pub const JSONRPC_VERSION: &str = "2.0";
 
@@ -136,13 +136,13 @@ pub fn classify(value: Value) -> Result<Incoming, BridgeError> {
             return Err(BridgeError::new(
                 code::INVALID_REQUEST,
                 format!("Unsupported JSON-RPC version: {other}"),
-            ))
+            ));
         }
         None => {
             return Err(BridgeError::new(
                 code::INVALID_REQUEST,
                 "Missing `jsonrpc` version field",
-            ))
+            ));
         }
     }
 

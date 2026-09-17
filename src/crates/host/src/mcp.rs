@@ -46,7 +46,7 @@ use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{HeaderMap, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 use ltb_core::dispatch::{Dispatcher, PeerTrust};
@@ -367,7 +367,7 @@ async fn handle_jsonrpc(
                     "MCP payload must be a JSON object",
                 )
                 .to_string(),
-            ))
+            ));
         }
     };
 
@@ -475,7 +475,7 @@ async fn handle_jsonrpc(
                     "MCP message has neither an id nor a method",
                 )
                 .to_string(),
-            ))
+            ));
         }
     }
 
@@ -649,7 +649,10 @@ fn mcp_description(descriptor: &ToolDescriptor) -> String {
     }
 
     if descriptor.name.starts_with("fs.") {
-        text.push_str("\nPaths must be absolute. On Windows, prefer forward slashes (C:/Users/...) over backslashes.");
+        text.push_str(
+            "\nPaths must be absolute. On Windows, prefer forward slashes (C:/Users/...) \
+             over backslashes.",
+        );
     }
 
     text

@@ -6,9 +6,9 @@
 
 use std::time::Instant;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{required_str, Tool, ToolContext, ToolDescriptor, ToolOutput};
+use super::{Tool, ToolContext, ToolDescriptor, ToolOutput, required_str};
 use crate::error::{BridgeError, Result};
 
 fn object_schema(properties: Value, required: &[&str]) -> super::ObjectSchema {
@@ -70,22 +70,37 @@ impl Tool for Exec {
         ToolDescriptor {
             name: "exec".into(),
             summary: "Run a command using the configured shell".into(),
-            description: "Codex-compatible command execution schema. The bridge keeps shell selection under its GUI policy; the optional shell field is accepted for schema compatibility but cannot override the configured shell.".into(),
+            description: "Codex-compatible command execution schema. The bridge keeps shell \
+                          selection under its GUI policy; the optional shell field is accepted \
+                          for schema compatibility but cannot override the configured shell."
+                .into(),
             category: "codex-execution".into(),
             mutating: true,
             default_effect: super::DefaultEffect::Ask,
             latency_hint: "slow".into(),
-            input_schema: object_schema(json!({
-                "cmd": { "type": "string", "description": "Command line to execute" },
-                "shell": { "type": "string", "description": "Compatibility field; shell is selected by the bridge policy" },
-                "login": { "type": "boolean", "default": true },
-                "tty": { "type": "boolean", "default": false },
-                "yield_time_ms": { "type": "integer", "minimum": 0, "maximum": 600000, "default": 10000 },
-                "timeout_ms": { "type": "integer", "minimum": 100, "maximum": 600000 },
-                "max_output_tokens": { "type": "integer", "minimum": 1, "maximum": 100000 },
-                "cwd": { "type": "string", "description": "Absolute working directory" },
-                "env": { "type": "object", "description": "Extra environment variables" }
-            }), &["cmd"]),
+            input_schema: object_schema(
+                json!({
+                    "cmd": { "type": "string", "description": "Command line to execute" },
+                    "shell": {
+                        "type": "string",
+                        "description": "Compatibility field; shell is selected by the \
+                                        bridge policy",
+                    },
+                    "login": { "type": "boolean", "default": true },
+                    "tty": { "type": "boolean", "default": false },
+                    "yield_time_ms": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 600000,
+                        "default": 10000,
+                    },
+                    "timeout_ms": { "type": "integer", "minimum": 100, "maximum": 600000 },
+                    "max_output_tokens": { "type": "integer", "minimum": 1, "maximum": 100000 },
+                    "cwd": { "type": "string", "description": "Absolute working directory" },
+                    "env": { "type": "object", "description": "Extra environment variables" },
+                }),
+                &["cmd"],
+            ),
         }
     }
 
@@ -112,7 +127,9 @@ impl Tool for UnifiedExec {
         let mut descriptor = Exec.descriptor();
         descriptor.name = "unified_exec".into();
         descriptor.summary = "Run a command through the unified exec schema".into();
-        descriptor.description = "Codex unified-exec compatible schema backed by the bridge's existing shell executor and policy controls.".into();
+        descriptor.description = "Codex unified-exec compatible schema backed by the bridge's \
+                                  existing shell executor and policy controls."
+            .into();
         descriptor
     }
 
@@ -131,14 +148,24 @@ impl Tool for ApplyPatch {
         ToolDescriptor {
             name: "apply_patch".into(),
             summary: "Create, update, delete, or move files with a patch".into(),
-            description: "Applies the Codex file-oriented patch format directly to the sandboxed filesystem. Supported operations are Add File, Delete File, Update File, and Update File with Move to.".into(),
+            description: "Applies the Codex file-oriented patch format directly to the sandboxed \
+                          filesystem. Supported operations are Add File, Delete File, Update \
+                          File, and Update File with Move to."
+                .into(),
             category: "codex-filesystem".into(),
             mutating: true,
             default_effect: super::DefaultEffect::Ask,
             latency_hint: "instant".into(),
-            input_schema: object_schema(json!({
-                "patch": { "type": "string", "description": "A Codex apply_patch document beginning with *** Begin Patch and ending with *** End Patch" }
-            }), &["patch"]),
+            input_schema: object_schema(
+                json!({
+                    "patch": {
+                        "type": "string",
+                        "description": "A Codex apply_patch document beginning with \
+                                        *** Begin Patch and ending with *** End Patch",
+                    },
+                }),
+                &["patch"],
+            ),
         }
     }
 

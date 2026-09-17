@@ -5,11 +5,11 @@
 
 use std::time::Instant;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{
-    clamp_u64, optional_bool, optional_str, optional_u64, required_str, Tool, ToolContext,
-    ToolDescriptor, ToolOutput,
+    Tool, ToolContext, ToolDescriptor, ToolOutput, clamp_u64, optional_bool, optional_str,
+    optional_u64, required_str,
 };
 use crate::error::{BridgeError, Result};
 use crate::policy::path::lexical_normalize;
@@ -36,7 +36,11 @@ impl Tool for ReadFile {
         ToolDescriptor {
             name: "fs.read_file".into(),
             summary: "Read a UTF-8 text file from disk".into(),
-            description: "Reads a file and returns its contents. By default output is prefixed with line numbers, which also normalises line endings; pass `lineNumbers: false` to get the file byte-for-byte. Use `offset` and `limit` for large files. Binary files are refused rather than mangled.".into(),
+            description: "Reads a file and returns its contents. By default output is prefixed \
+                          with line numbers, which also normalises line endings; pass \
+                          `lineNumbers: false` to get the file byte-for-byte. Use `offset` and \
+                          `limit` for large files. Binary files are refused rather than mangled."
+                .into(),
             category: "fs".into(),
             mutating: false,
             default_effect: super::DefaultEffect::Ask,
@@ -44,10 +48,27 @@ impl Tool for ReadFile {
             input_schema: schema(
                 json!({
                     "path": { "type": "string", "description": "Absolute path to the file" },
-                    "offset": { "type": "integer", "description": "1-based first line to return", "minimum": 1 },
-                    "limit": { "type": "integer", "description": "Maximum number of lines", "minimum": 1, "maximum": 5000 },
-                    "lineNumbers": { "type": "boolean", "description": "Prefix each line with its number (normalises line endings)", "default": true },
-                    "encoding": { "type": "string", "enum": ["utf-8", "utf-16le", "gbk"], "default": "utf-8" }
+                    "offset": {
+                        "type": "integer",
+                        "description": "1-based first line to return",
+                        "minimum": 1,
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of lines",
+                        "minimum": 1,
+                        "maximum": 5000,
+                    },
+                    "lineNumbers": {
+                        "type": "boolean",
+                        "description": "Prefix each line with its number (normalises line endings)",
+                        "default": true,
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "enum": ["utf-8", "utf-16le", "gbk"],
+                        "default": "utf-8",
+                    },
                 }),
                 &["path"],
             ),
@@ -149,7 +170,7 @@ fn decode(bytes: &[u8], encoding: &str) -> std::result::Result<String, String> {
         "utf-8" | "utf8" => String::from_utf8(bytes.to_vec())
             .map_err(|error| format!("invalid UTF-8 at byte {}", error.utf8_error().valid_up_to())),
         "utf-16le" | "utf16le" => {
-            if bytes.len() % 2 != 0 {
+            if !bytes.len().is_multiple_of(2) {
                 return Err("odd byte count for UTF-16LE".into());
             }
             let units: Vec<u16> = bytes
@@ -172,7 +193,10 @@ impl Tool for WriteFile {
         ToolDescriptor {
             name: "fs.write_file".into(),
             summary: "Create or overwrite a text file".into(),
-            description: "Writes text to a file, creating parent directories when needed. Always requires explicit human approval because it destroys existing content unless `mode` is `append`.".into(),
+            description: "Writes text to a file, creating parent directories when needed. Always \
+                          requires explicit human approval because it destroys existing content \
+                          unless `mode` is `append`."
+                .into(),
             category: "fs".into(),
             mutating: true,
             default_effect: super::DefaultEffect::Ask,
@@ -181,8 +205,16 @@ impl Tool for WriteFile {
                 json!({
                     "path": { "type": "string", "description": "Absolute path to write" },
                     "content": { "type": "string", "description": "Full file contents" },
-                    "mode": { "type": "string", "enum": ["overwrite", "append", "create"], "default": "overwrite" },
-                    "createDirs": { "type": "boolean", "description": "Create missing parent directories", "default": true }
+                    "mode": {
+                        "type": "string",
+                        "enum": ["overwrite", "append", "create"],
+                        "default": "overwrite",
+                    },
+                    "createDirs": {
+                        "type": "boolean",
+                        "description": "Create missing parent directories",
+                        "default": true,
+                    },
                 }),
                 &["path", "content"],
             ),
@@ -246,7 +278,7 @@ impl Tool for WriteFile {
             other => {
                 return Err(BridgeError::invalid_params(format!(
                     "Unsupported mode `{other}`; expected overwrite, append, or create"
-                )))
+                )));
             }
         }
 
@@ -274,7 +306,9 @@ impl Tool for ListDir {
         ToolDescriptor {
             name: "fs.list_dir".into(),
             summary: "List the entries of a directory".into(),
-            description: "Returns names, sizes, and modification times for a directory. Non-recursive by default; set `recursive` with a `glob` to walk a tree.".into(),
+            description: "Returns names, sizes, and modification times for a directory. \
+                          Non-recursive by default; set `recursive` with a `glob` to walk a tree."
+                .into(),
             category: "fs".into(),
             mutating: false,
             default_effect: super::DefaultEffect::Allow,
@@ -285,7 +319,12 @@ impl Tool for ListDir {
                     "recursive": { "type": "boolean", "default": false },
                     "glob": { "type": "string", "description": "Filter such as `**/*.ts`" },
                     "includeHidden": { "type": "boolean", "default": false },
-                    "maxEntries": { "type": "integer", "minimum": 1, "maximum": 5000, "default": 500 }
+                    "maxEntries": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5000,
+                        "default": 500,
+                    },
                 }),
                 &["path"],
             ),
@@ -437,7 +476,10 @@ impl Tool for Search {
         ToolDescriptor {
             name: "fs.search".into(),
             summary: "Search file contents with a regular expression".into(),
-            description: "Recursively searches text files under a directory and returns matching lines with their line numbers. Skips binary files, `.git`, and `node_modules` by default.".into(),
+            description: "Recursively searches text files under a directory and returns matching \
+                          lines with their line numbers. Skips binary files, `.git`, and \
+                          `node_modules` by default."
+                .into(),
             category: "fs".into(),
             mutating: false,
             default_effect: super::DefaultEffect::Allow,
@@ -446,10 +488,23 @@ impl Tool for Search {
                 json!({
                     "path": { "type": "string", "description": "Absolute directory to search" },
                     "pattern": { "type": "string", "description": "Rust regex syntax" },
-                    "glob": { "type": "string", "description": "Restrict to matching files, e.g. `*.rs`" },
+                    "glob": {
+                        "type": "string",
+                        "description": "Restrict to matching files, e.g. `*.rs`",
+                    },
                     "ignoreCase": { "type": "boolean", "default": false },
-                    "maxResults": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 },
-                    "contextLines": { "type": "integer", "minimum": 0, "maximum": 10, "default": 0 }
+                    "maxResults": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
+                        "default": 100,
+                    },
+                    "contextLines": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10,
+                        "default": 0,
+                    },
                 }),
                 &["path", "pattern"],
             ),

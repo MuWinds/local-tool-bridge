@@ -7,7 +7,9 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use ltb_host::{build_dispatcher, load_or_create_secret, load_policy, run_http, run_mcp, run_websocket};
+use ltb_host::{
+    build_dispatcher, load_or_create_secret, load_policy, run_http, run_mcp, run_websocket,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "ltb-host", about = "Local MCP tool bridge", version)]

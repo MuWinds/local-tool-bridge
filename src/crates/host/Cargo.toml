@@ -1,10 +1,10 @@
 [package]
 name = "ltb-host"
-description = "Local bridge host: loopback WebSocket, MCP, and Chrome native messaging transports."
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 license.workspace = true
+rust-version.workspace = true
+description = "Local bridge host: loopback WebSocket, MCP, and Chrome native messaging transports."
 
 [lib]
 name = "ltb_host"
@@ -17,24 +17,23 @@ path = "src/main.rs"
 [dependencies]
 ltb-core = { workspace = true }
 
+async-trait.workspace = true
+base64.workspace = true
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+directories.workspace = true
+futures-util.workspace = true
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+rand.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-async-trait.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
-futures-util.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-uuid.workspace = true
-rand.workspace = true
-directories.workspace = true
-base64.workspace = true
-clap = { version = "4", features = ["derive"] }
-
-hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
-bytes = "1"
-reqwest.workspace = true
 url.workspace = true
+uuid.workspace = true

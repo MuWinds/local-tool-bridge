@@ -324,10 +324,12 @@ mod tests {
         }));
         assert_eq!(redacted["path"], "/tmp/a.txt");
         assert!(redacted["content"].as_str().unwrap().contains("redacted"));
-        assert!(redacted["nested"]["token"]
-            .as_str()
-            .unwrap()
-            .contains("redacted"));
+        assert!(
+            redacted["nested"]["token"]
+                .as_str()
+                .unwrap()
+                .contains("redacted")
+        );
     }
 
     #[test]

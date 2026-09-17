@@ -1,0 +1,144 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+env:
+  # The minimum toolchain the crates build with. Enforced by the `msrv` job.
+  RUST_MSRV: "1.88.0"
+  # rustfmt 1.9.0 (shipped from Rust 1.94.0) is the first release that supports
+  # the `style_edition = "2024"` setting in rustfmt.toml, which is the style the
+  # Rust Style Guide describes. It is therefore newer than the MSRV on purpose.
+  RUST_STYLE: "1.94.0"
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STYLE }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src
+      # `clippy --workspace` also builds `ltb-gui`, which links GTK/glib through
+      # `tray-icon`/`eframe`; those dev packages are absent on the bare image.
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libxdo-dev libxkbcommon-dev libwayland-dev
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  msrv:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_MSRV }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src
+      # The MSRV job only proves the library crates compile on the minimum
+      # toolchain; the GUI additionally needs the GTK/glib dev packages and is
+      # covered by the `test` job on a current toolchain.
+      - run: cargo check -p ltb-core -p ltb-host --all-targets
+
+  test:
+    needs: [lint, msrv]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STYLE }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src
+      # The GUI links GTK/glib through `tray-icon`/`eframe`; those dev packages
+      # are not present on the bare runner image.
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libxdo-dev libxkbcommon-dev libwayland-dev
+      - run: cargo test --workspace --all-features
+      - run: cargo build --release -p ltb-gui
+
+  package:
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: local-tool-bridge-windows-x64.zip
+            binary: ltb-gui.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: local-tool-bridge-linux-x64.tar.gz
+            binary: ltb-gui
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: local-tool-bridge-macos-arm64.tar.gz
+            binary: ltb-gui
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STYLE }}
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src
+      # The GUI links GTK/glib through `tray-icon`/`eframe`; those dev packages
+      # are not present on the bare runner image.
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libxdo-dev libxkbcommon-dev libwayland-dev
+      - run: cargo build --release --target ${{ matrix.target }} -p ltb-gui
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ..\dist | Out-Null
+          Copy-Item target\${{ matrix.target }}\release\${{ matrix.binary }} ..\dist\
+          Compress-Archive -Path ..\dist\${{ matrix.binary }} -DestinationPath ..\${{ matrix.archive }} -Force
+      - name: Package Unix
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p ../dist
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} ../dist/
+          tar -C ../dist -czf ../${{ matrix.archive }} ${{ matrix.binary }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-tool-bridge-${{ matrix.target }}
+          path: ${{ matrix.archive }}

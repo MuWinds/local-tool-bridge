@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::StatusCode;
-use tokio_tungstenite::tungstenite::Message;
 
 use ltb_core::dispatch::{Dispatcher, PeerTrust};
 use ltb_core::rpc::{self, Incoming};
@@ -147,7 +147,8 @@ async fn handle_connection(
                 if !authenticated {
                     let is_hello = matches!(
                         &classified,
-                        Incoming::Request(request) if request.method == ltb_core::dispatch::method::HELLO
+                        Incoming::Request(request)
+                            if request.method == ltb_core::dispatch::method::HELLO
                     );
                     if !is_hello {
                         let failure = rpc::JsonRpcFailure::bare(ltb_core::BridgeError::new(
@@ -225,7 +226,9 @@ mod tests {
         assert!(!origin_allowed("https://chat.deepseek.com"));
         assert!(!origin_allowed("chrome-extension://abcdefghijklmnop"));
         assert!(!origin_allowed("moz-extension://abc"));
-        assert!(!origin_allowed("https://evil-chat.deepseek.com.attacker.net"));
+        assert!(!origin_allowed(
+            "https://evil-chat.deepseek.com.attacker.net"
+        ));
         assert!(!origin_allowed("https://notdeepseek.com"));
         assert!(!origin_allowed("https://example.com"));
     }

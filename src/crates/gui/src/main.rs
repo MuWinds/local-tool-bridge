@@ -5,16 +5,16 @@
 //! human can answer an approval prompt, so closing it flips the approver to
 //! non-interactive and every subsequent `ask` is denied.
 
-mod app;
-mod approver;
-mod fonts;
-mod ui;
-
 use std::sync::Arc;
 use std::time::Duration;
 
 use app::BridgeApp;
 use approver::GuiApprover;
+
+mod app;
+mod approver;
+mod fonts;
+mod ui;
 
 /// How long an approval prompt stays open before it is denied.
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(180);

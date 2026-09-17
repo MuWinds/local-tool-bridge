@@ -1,27 +1,27 @@
 [package]
 name = "ltb-core"
-description = "Transport-agnostic core of the local tool bridge: RPC dispatch, policy, tools, audit."
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 license.workspace = true
+rust-version.workspace = true
+description = "Transport-agnostic core of the local tool bridge: RPC dispatch, policy, tools, audit."
 
 [dependencies]
+async-trait = "0.1"
+directories.workspace = true
+dunce.workspace = true
+globset.workspace = true
+rand.workspace = true
+regex.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-regex.workspace = true
-globset.workspace = true
-walkdir.workspace = true
-dunce.workspace = true
-directories.workspace = true
-uuid.workspace = true
 tracing.workspace = true
-reqwest.workspace = true
-rand.workspace = true
 url.workspace = true
-async-trait = "0.1"
+uuid.workspace = true
+walkdir.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

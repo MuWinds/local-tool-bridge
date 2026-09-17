@@ -14,11 +14,11 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::RwLock;
 
-use crate::audit::{now_rfc3339, redact_arguments, AuditEntry, AuditLog, AuditOutcome};
-use crate::error::{code, BridgeError, Result};
+use crate::audit::{AuditEntry, AuditLog, AuditOutcome, now_rfc3339, redact_arguments};
+use crate::error::{BridgeError, Result, code};
 use crate::policy::{Effect, Policy, PolicyEngine, Verdict};
 use crate::rpc::{Incoming, JsonRpcFailure, JsonRpcSuccess, PROTOCOL_VERSION};
 use crate::tools::{ToolContext, ToolRegistry};
@@ -238,7 +238,8 @@ impl Dispatcher {
                 if provided != expected {
                     return Err(BridgeError::new(
                         code::NOT_AUTHENTICATED,
-                        "Bridge secret did not match; copy the current token from the bridge window",
+                        "Bridge secret did not match; copy the current token from the \
+                         bridge window",
                     ));
                 }
             }
@@ -255,7 +256,8 @@ impl Dispatcher {
             return Err(BridgeError::new(
                 code::PROTOCOL_MISMATCH,
                 format!(
-                    "Extension speaks protocol {peer_protocol} but this host speaks {PROTOCOL_VERSION}"
+                    "Extension speaks protocol {peer_protocol} but this host speaks \
+                     {PROTOCOL_VERSION}"
                 ),
             ));
         }
@@ -395,8 +397,8 @@ impl Dispatcher {
                         return Err(BridgeError::new(
                             code::APPROVAL_TIMEOUT,
                             format!(
-                                "No approval was given for `{name}`. Approve it in the bridge window, \
-                                 or add an allow rule for this tool."
+                                "No approval was given for `{name}`. Approve it in the bridge \
+                                 window, or add an allow rule for this tool."
                             ),
                         ));
                     }

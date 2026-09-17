@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ltb_core::dispatch::{ApprovalChallenge, ApprovalDecision, Approver};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 /// A challenge awaiting a decision in the UI.
 pub struct PendingApproval {

@@ -32,15 +32,15 @@ mcp:
       url: http://127.0.0.1:8790/mcp
   # The bridge secret gates every /mcp request. The `file:` reference reads the
   # persisted secret without putting it in this file or the shell history.
-  # Windows: %APPDATA%\local-tool-bridge\config\secret
+  # Windows: %APPDATA%\local-tool-bridge\secret
   # macOS:   ~/Library/Application Support/local-tool-bridge/secret
   # Linux:   ~/.config/local-tool-bridge/secret
   extra_headers:
-    x-dlb-secret: file:C:/Users/<you>/AppData/Roaming/local-tool-bridge/config/secret
+    x-dlb-secret: file:C:/Users/<you>/AppData/Roaming/local-tool-bridge/secret
   # tunnel-client's startup initialize probe uses these headers; without them
   # /readyz stays not-ready even though the daemon polls fine.
   discovery_extra_headers:
-    x-dlb-secret: file:C:/Users/<you>/AppData/Roaming/local-tool-bridge/config/secret
+    x-dlb-secret: file:C:/Users/<you>/AppData/Roaming/local-tool-bridge/secret
   # Wait for the bridge listener before the first poll, so ltb-gui /
   # ltb-host serve-mcp and tunnel-client can start together.
   startup_wait_timeout: 60s

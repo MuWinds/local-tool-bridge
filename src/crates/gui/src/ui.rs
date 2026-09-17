@@ -66,7 +66,13 @@ fn draw_tunnel_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
     ui.add_space(16.0);
     ui.separator();
     ui.heading("OpenAI Secure MCP Tunnel");
-    ui.label(RichText::new("使用 Rust 原生 Secure MCP Tunnel 核心，把本机 MCP /mcp 通过出站 HTTPS 接到 OpenAI；不再依赖 tunnel-client.exe。").weak());
+    ui.label(
+        RichText::new(
+            "使用 Rust 原生 Secure MCP Tunnel 核心，把本机 MCP /mcp 通过出站 HTTPS 接到 \
+             OpenAI；不再依赖 tunnel-client.exe。",
+        )
+        .weak(),
+    );
     ui.checkbox(
         &mut app.tunnel_config.enabled,
         "启动 GUI 时自动运行 Rust Tunnel",
@@ -208,10 +214,15 @@ fn draw_status(app: &mut BridgeApp, ui: &mut egui::Ui) {
 
 fn draw_tools(app: &mut BridgeApp, ui: &mut egui::Ui) {
     ui.heading("工具权限");
-    ui.label(RichText::new("向模型暴露 Codex 兼容的工具 Schema，并统一经过策略、审批与审计。").weak());
+    ui.label(
+        RichText::new("向模型暴露 Codex 兼容的工具 Schema，并统一经过策略、审批与审计。").weak(),
+    );
     ui.group(|ui| {
         ui.label(RichText::new("工具 Schema").strong());
-        ui.label("Codex Rust Compatible —— 只向模型暴露 exec / unified_exec / apply_patch / list_dir / read_file；不包含 write_stdin。");
+        ui.label(
+            "Codex Rust Compatible —— 只向模型暴露 exec / unified_exec / apply_patch / \
+             list_dir / read_file；不包含 write_stdin。",
+        );
     });
     ui.add_space(8.0);
     ui.horizontal(|ui| {
@@ -223,21 +234,39 @@ fn draw_tools(app: &mut BridgeApp, ui: &mut egui::Ui) {
                 "gitbash" => "Git Bash",
                 "wsl" => "WSL",
                 "cmd" => "Command Prompt",
-                _ => "PowerShell",
+                "sh" => "sh",
+                "bash" => "Bash",
+                "zsh" => "Zsh",
+                "fish" => "Fish",
+                _ => "sh",
             })
             .show_ui(ui, |ui| {
-                ui.selectable_value(
-                    &mut app.policy.default_shell,
-                    "powershell".into(),
-                    "PowerShell",
-                );
-                ui.selectable_value(&mut app.policy.default_shell, "gitbash".into(), "Git Bash");
-                ui.selectable_value(&mut app.policy.default_shell, "wsl".into(), "WSL");
-                ui.selectable_value(
-                    &mut app.policy.default_shell,
-                    "cmd".into(),
-                    "Command Prompt",
-                );
+                #[cfg(windows)]
+                {
+                    ui.selectable_value(
+                        &mut app.policy.default_shell,
+                        "powershell".into(),
+                        "PowerShell",
+                    );
+                    ui.selectable_value(
+                        &mut app.policy.default_shell,
+                        "gitbash".into(),
+                        "Git Bash",
+                    );
+                    ui.selectable_value(&mut app.policy.default_shell, "wsl".into(), "WSL");
+                    ui.selectable_value(
+                        &mut app.policy.default_shell,
+                        "cmd".into(),
+                        "Command Prompt",
+                    );
+                }
+                #[cfg(unix)]
+                {
+                    ui.selectable_value(&mut app.policy.default_shell, "sh".into(), "sh");
+                    ui.selectable_value(&mut app.policy.default_shell, "bash".into(), "Bash");
+                    ui.selectable_value(&mut app.policy.default_shell, "zsh".into(), "Zsh");
+                    ui.selectable_value(&mut app.policy.default_shell, "fish".into(), "Fish");
+                }
             });
         if app.policy.default_shell != before {
             app.dirty = true;
@@ -399,7 +428,13 @@ fn draw_audit(app: &mut BridgeApp, ui: &mut egui::Ui) {
 
 fn draw_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
     ui.heading("MCP 服务器");
-    ui.label(RichText::new("在这里添加由 local-tool-bridge 启动的本地 stdio MCP Server。配置写入用户配置目录的 mcp.json。").weak());
+    ui.label(
+        RichText::new(
+            "在这里添加由 local-tool-bridge 启动的本地 stdio MCP Server。配置写入用户配置目录的 \
+             mcp.json。",
+        )
+        .weak(),
+    );
     ui.add_space(8.0);
     let names: Vec<String> = app.mcp_config.servers.keys().cloned().collect();
     if names.is_empty() {
@@ -452,7 +487,7 @@ fn draw_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
                     });
             });
         }
-        if changed {}
+
         if remove {
             app.mcp_config.servers.remove(&name);
         }

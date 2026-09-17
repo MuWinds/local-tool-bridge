@@ -1,11 +1,5 @@
 //! `ltb-host` — the local bridge process, as a library.
 
-pub mod http;
-pub mod mcp;
-pub mod mcp_servers;
-pub mod tunnel;
-pub mod websocket;
-
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,7 +8,13 @@ use ltb_core::audit::AuditLog;
 use ltb_core::dispatch::Dispatcher;
 use ltb_core::policy::{Policy, PolicyEngine};
 use ltb_core::tools::ToolRegistry;
-use ltb_core::{audit_path, policy_path, Result};
+use ltb_core::{Result, audit_path, policy_path};
+
+pub mod http;
+pub mod mcp;
+pub mod mcp_servers;
+pub mod tunnel;
+pub mod websocket;
 
 /// Loads the policy document, falling back to the built-in default on failure.
 pub fn load_policy(path: Option<&PathBuf>) -> Policy {
@@ -26,13 +26,21 @@ pub fn load_policy(path: Option<&PathBuf>) -> Policy {
         Ok(text) => match serde_json::from_str::<Policy>(&text) {
             Ok(policy) => policy,
             Err(error) => {
-                tracing::error!(path = %path.display(), %error, "policy file is malformed; falling back to defaults");
+                tracing::error!(
+                    path = %path.display(),
+                    %error,
+                    "policy file is malformed; falling back to defaults"
+                );
                 Policy::default()
             }
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Policy::default(),
         Err(error) => {
-            tracing::error!(path = %path.display(), %error, "failed to read policy; using defaults");
+            tracing::error!(
+                path = %path.display(),
+                %error,
+                "failed to read policy; using defaults"
+            );
             Policy::default()
         }
     }

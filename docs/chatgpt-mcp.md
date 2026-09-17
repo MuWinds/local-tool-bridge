@@ -1,307 +1,84 @@
 # 让 ChatGPT 使用本机的 Local Tool Bridge 工具
 
-通过 **OpenAI Secure MCP Tunnel**（`openai/tunnel-client`）把 ChatGPT / Codex
+本指南带你把 ChatGPT / Codex 接到本机工具。全程只做三件事：在 OpenAI 平台准备一条 Tunnel、在控制面板里填进去、在 ChatGPT 里创建一个 Connector。
 
-连接到本地运行的 bridge MCP 端点。ChatGPT 侧发出 MCP 调用 → OpenAI 隧道服务 →
+完成后，ChatGPT 可以读取你指定文件夹里的文件、执行命令、修改代码——每一步需要确认的操作都会先在控制面板弹窗问你，并且全部留下审计记录。
 
-你本机的 `tunnel-client` 守护进程 → `ltb-host` 的 `/mcp` 端点 → 本地工具、
-策略、审批与审计。
-
-
+## 总览
 
 ```
-ChatGPT（Connector）
-
-&#x20;  │  MCP JSON-RPC（经 OpenAI 托管隧道）
-
-&#x20;  ▼
-
-OpenAI Secure MCP Tunnel 控制面  ── 长轮询 ──►  tunnel-client（本机守护进程）
-
-&#x20;                                                │  MCP Streamable HTTP + x-dlb-secret
-
-&#x20;                                                ▼
-
-&#x20;                                       ltb-host / ltb-gui（http://127.0.0.1:8789/mcp）
-
-&#x20;                                                │  同一个 Dispatcher
-
-&#x20;                                                ▼
-
-&#x20;                                       read_file / list_dir / exec / unified_exec / apply_patch
-
-&#x20;                                       （策略 → 审批 → 执行 → 审计）
+ChatGPT
+   │  经 OpenAI 隧道（HTTPS 安全通道）
+   ▼
+本机控制面板（ltb-gui）
+   │  内置隧道 ←→ 本机 MCP 服务
+   ▼
+你电脑上的工具（读文件 / 列目录 / 执行命令 / 修改文件）
+   │
+   └── 每次需要确认的调用，都会弹窗问你
 ```
 
-## 1. 前置条件
+整个过程不需要开放端口，也不需要额外安装任何客户端程序。
 
+## 第 1 步：在 OpenAI 平台准备（一次性）
 
+1. 打开 [Tunnels 设置页](https://platform.openai.com/settings/organization/tunnels)，创建一条 Tunnel，记下以 `tunnel_` 开头的 **Tunnel ID**。
+2. 打开 [API Keys 设置页](https://platform.openai.com/settings/organization/api-keys)，创建一条 **Runtime API key**（权限需包含 Tunnels Read + Use），记下以 `sk-` 开头的值。
 
-* 一个能登录 [platform.openai.com](https://platform.openai.com) 的账号，并具备
+> 需要能登录 platform.openai.com 且具备 Tunnels 权限的账号（组织管理员可以创建）。
 
-  Tunnels 权限（组织管理员可创建 tunnel 与 Runtime API key）。
+## 第 2 步：在控制面板里启用隧道
 
-* 本仓库已构建好的本地宿主。**推荐用控制面板&#x20;**`ltb-gui`（审批弹窗可用），
+1. 启动控制面板：`./src/target/release/ltb-gui`；
+2. 打开「**安装 / MCP**」页，找到 **OpenAI Secure MCP Tunnel** 区域；
+3. 在 **Tunnel ID** 一栏粘贴第 1 步记下的 Tunnel ID；
+4. 在 **Runtime API Key** 输入框粘贴第 1 步记下的 API Key，点「**保存 Tunnel API Key**」（密钥只写入本机文件，界面不显示已有值）；
+5. 勾选「**启动 GUI 时自动运行 Rust Tunnel**」，点「**保存 Tunnel 配置**」。
 
-  或纯命令行 `ltb-host serve-mcp`。
+回到「**状态**」页，**Secure MCP Tunnel** 一栏应显示「已运行」。如果显示「已启用但未运行」，检查 Tunnel ID / API Key 是否正确，或在「安装 / MCP」页调大「启动等待」（默认 60 秒）后重启控制面板。
 
-* `tunnel-client` 二进制：macOS 用 `brew install openai/tools/tunnel-client`；
+> 勾选启用后，每次启动控制面板都会自动运行隧道，无需重复配置。
+> 本机 MCP 地址（通常 `http://127.0.0.1:8790/mcp`）由控制面板自动管理，以「状态」页显示为准，无需手填。
 
-  其他平台从 [openai/tunnel-client Releases](https://github.com/openai/tunnel-client/releases)
+## 第 3 步：在 ChatGPT 里创建 Connector
 
-  下载，或用 `go build -o bin/tunnel-client ./cmd/client` 自行构建。
-
-## 2. 启动本地 MCP 端点
-
-**方式 A（推荐）：控制面板**
-
-
-
-```
-./src/target/release/ltb-gui
-```
-
-「状态」页会出现 `MCP（ChatGPT）` 一栏，地址形如 `http://127.0.0.1:8790/mcp`
-
-（控制面板按 `8788 → 8789 → 8790 → 8791` 顺序分配端口，HTTP 占 8788、WebSocket
-
-占 8789，MCP 通常落在 8790）。**把这一行地址记下来**，后面 `MCP_SERVER_URL` 要用。
-
-**方式 B：无界面宿主**
-
-
-
-```
-./src/target/release/ltb-host serve-mcp --mcp-port 8789
-```
-
-启动时会打印 `ltb-host MCP listening on http://127.0.0.1:8789/mcp` 和
-
-`bridge secret: <hex>`。注意：无界面宿主没有审批窗口，所有「需确认」的调用会
-
-被直接拒绝（fail-closed）—— 想用 `apply_patch`、`exec` 这类工具，请用
-
-方式 A，或在控制面板里把它们配置成「允许」。
-
-## 3. 准备 OpenAI 侧（一次性）
-
-
-
-1. 打开 [https://platform.openai.com/settings/organization/tunnels](https://platform.openai.com/settings/organization/tunnels)，创建或
-
-   沿用一条 tunnel，记下 `tunnel_` 开头的 **Tunnel ID**。
-
-2. 打开 [https://platform.openai.com/settings/organization/api-keys](https://platform.openai.com/settings/organization/api-keys)，创建一条
-
-   **Runtime API key**（角色需具备 Tunnels Read + Use）。这是
-
-   `CONTROL_PLANE_API_KEY`。
-
-3. 本机 bridge 的共享令牌就是 `ltb-host` 启动时打印的 `bridge secret`，它持久化在：
-
-   后面把它配置进 `MCP_EXTRA_HEADERS`（及 `MCP_DISCOVERY_EXTRA_HEADERS`）。
-
-* Windows：`%APPDATA%\local-tool-bridge\config\secret`
-
-* macOS：`~/Library/Application Support/local-tool-bridge/secret`
-
-* Linux：`~/.config/local-tool-bridge/secret`
-
-## 4. 配置并运行 tunnel-client
-
-`tunnel-client` 只需要三样东西：tunnel ID、runtime key、本地 MCP URL。
-
-**secret 通过自定义头携带**，因为 bridge 对 `/mcp` 的每个请求（包括
-
-`initialize`）都校验 `x-dlb-secret`。
-
-### 4.1 环境变量方式（最小路径）
-
-
-
-```
-export CONTROL\_PLANE\_API\_KEY="sk-..."                 # Runtime API key
-
-export CONTROL\_PLANE\_TUNNEL\_ID="tunnel\_0123456789abcdef0123456789abcdef"
-
-\# 把第 2 步记下的地址填进来；secret 用 file: 引用，避免进 shell 历史
-
-export MCP\_SERVER\_URL="http://127.0.0.1:8790/mcp"
-
-export MCP\_EXTRA\_HEADERS="x-dlb-secret: file:C:/Users/<你>/AppData/Roaming/local-tool-bridge/config/secret"
-
-export MCP\_DISCOVERY\_EXTRA\_HEADERS="x-dlb-secret: file:C:/Users/<你>/AppData/Roaming/local-tool-bridge/config/secret"
-
-tunnel-client run --log.level=info --log.format=struct-text
-```
-
-> `MCP_DISCOVERY_EXTRA_HEADERS`
->
->  与 
->
-> `MCP_EXTRA_HEADERS`
->
->  都要设：tunnel-client
-> 启动时对 MCP 端点做一次 
->
-> `initialize`
->
->  探测，那次探测走的是 discovery headers；
-> 只设 
->
-> `MCP_EXTRA_HEADERS`
->
->  会让探测 401、
->
-> `/readyz`
->
->  一直 not ready。
-> 想先验证配置再常驻运行，用 
->
-> `tunnel-client doctor --profile ... --explain`
->
-> 。
-> 如果 
->
-> `file:`
->
->  引用在你的 tunnel-client 版本上解析有问题（个别 Windows 版本对
-> 路径前缀处理不一致），改用环境变量形式：
-> `export DLB_SECRET=$(cat "$APPDATA/local-tool-bridge/config/secret")`
->
-> ，
-> 然后把两处头写成 
->
-> `x-dlb-secret: env:DLB_SECRET`
->
-> 。
-
-### 4.2 Profile 方式（推荐，便于管理与排查）
-
-仓库里附了一份可直接改的样例：`docs/tunnel-client.chatgpt.yaml`。
-
-
-
-```
-tunnel-client init --profile chatgpt --tunnel-id tunnel\_0123456789abcdef0123456789abcdef --mcp-server-url http://127.0.0.1:8790/mcp
-
-\# 然后把 mcp.extra\_headers / discovery\_extra\_headers 补进生成的 profile（见样例文件）
-
-tunnel-client doctor --profile chatgpt --explain
-
-tunnel-client run --profile chatgpt
-```
-
-样例 `docs/tunnel-client.chatgpt.yaml`：
-
-
-
-```
-config\_version: 1
-
-control\_plane:
-
-&#x20; tunnel\_id: tunnel\_0123456789abcdef0123456789abcdef
-
-&#x20; api\_key: env:CONTROL\_PLANE\_API\_KEY
-
-log:
-
-&#x20; level: info
-
-health:
-
-&#x20; listen\_addr: 127.0.0.1:8080
-
-mcp:
-
-&#x20; server\_urls:
-
-&#x20;   - channel: main
-
-&#x20;     # 以控制面板「状态」页实际显示的地址为准
-
-&#x20;     url: http://127.0.0.1:8790/mcp
-
-&#x20; extra\_headers:
-
-&#x20;   # 本机 bridge 共享令牌；file: 指向 secret 文件，避免明文进配置
-
-&#x20;   x-dlb-secret: file:C:/Users/<你>/AppData/Roaming/local-tool-bridge/config/secret
-
-&#x20; discovery\_extra\_headers:
-
-&#x20;   x-dlb-secret: file:C:/Users/<你>/AppData/Roaming/local-tool-bridge/config/secret
-
-&#x20; startup\_wait\_timeout: 60s
-```
-
-### 4.3 验证守护进程健康
-
-
-
-```
-curl -fsS http://127.0.0.1:8080/healthz   # 存活
-
-curl -fsS http://127.0.0.1:8080/readyz    # 就绪（含对 MCP 端点的探测）
-
-curl -fsS "http://127.0.0.1:8080/health?details=true"
-```
-
-`readyz` 里 MCP 组件应为 ready；若显示未就绪，先检查第 2 步的
-
-`ltb-gui`/`ltb-host serve-mcp` 是否仍在运行、地址与 secret 是否一致。
-
-## 5. 在 ChatGPT 里创建 Connector
-
-
-
-1. 打开 [https://chatgpt.com/#settings/Connectors](https://chatgpt.com/#settings/Connectors)（需 ChatGPT 账号）。
-
-2. 新建 Connector，**Connection 选 Tunnel**，从下拉选你的 tunnel（没出现就点 "Enter tunnel ID instead" 手填），填入第 3 步的 tunnel ID。
-
-3. **Authentication（身份验证）选 No Authentication**。走 Tunnel 时认证由 OpenAI 账号与隧道本身完成；本机 bridge 的 `x-dlb-secret` 由 tunnel-client 本地注入，ChatGPT 不需要也不应配任何身份验证——选 OAuth 会让「扫描工具」去请求一个不存在的 OAuth 端点而失败。
-
-4. 点 **Scan Tools / 扫描工具**，确认 `tunnel-client run` 正在运行且 `/readyz` 通过，扫描成功后应看到 5 个工具（`read_file`、`list_dir`、`exec`、`unified_exec`、`apply_patch`）。
-
+1. 打开 [Connectors 设置](https://chatgpt.com/#settings/Connectors)（需 ChatGPT 账号）；
+2. 新建 Connector，**Connection 选 Tunnel**，从下拉选择你的 Tunnel（没出现就点 "Enter tunnel ID instead" 手填）；
+3. **Authentication 选 No Authentication**——走 Tunnel 时身份验证由 OpenAI 账号完成，选 OAuth 会让「扫描工具」去请求不存在的 OAuth 端点而失败；
+4. 点 **Scan Tools** 扫描工具，确认控制面板在运行且隧道显示「已运行」，成功后应看到 5 个工具（`read_file`、`list_dir`、`exec`、`unified_exec`、`apply_patch`）；
 5. 点 **Create** 保存。
 
-6. 回到 ChatGPT 会话，发起一个会用到本机工具的任务，例如：
+## 使用
+
+在 ChatGPT 会话里发起一个会用到本机工具的任务，例如：
 
 > 读取 C:\Users\me\project\README.md 并总结。
 
-涉及「需确认」工具的调用，会弹出审批框。
+涉及「需确认」工具的调用，控制面板会弹出审批框，你可以选择「拒绝 / 仅本次允许 / 始终允许」。
 
-## 6. 安全说明
+## 安全说明
 
+- 本机 MCP 服务只监听 `127.0.0.1`，不暴露到局域网；
+- 每个请求（包括握手）都校验本机共享令牌，控制面板在连接时自动携带，你无需手动配置；
+- 策略、路径沙箱、命令黑名单、私网拦截对来自 ChatGPT 的调用**完全生效**；
+- 没有控制面板（或窗口已关闭）时，需要确认的调用会被一律拒绝，不会悄悄放行。
 
+## 故障排查
 
-* MCP 端点只绑定 `127.0.0.1`，不暴露到局域网。
+| 现象 | 检查 |
+| --- | --- |
+| 「状态」页 Tunnel 显示「已启用但未运行」 | Tunnel ID 是否完整；API Key 是否已保存；「启动等待」是否太短 |
+| ChatGPT 扫描不到工具 / Connector 连不上 | 控制面板是否在运行、Tunnel 是否显示「已运行」；tunnel 权限是否 Read + Use |
+| 调用被拒绝 | 这是策略 / 审批在拦截：在控制面板批准，或把该工具 / 目录设为「允许」 |
+| 工具名找不到 | 工具名是 Codex 兼容形式（`read_file` 等），可在「工具与策略」页核对 |
+| ChatGPT 报 `server/discover response was invalid` | 本地版本过旧：重新 `cargo build -p ltb-gui` 并重启控制面板 |
 
-* `x-dlb-secret` 是 bridge 的共享令牌；任何进程拿到它都能
+## 附录：无界面模式（高级）
 
-  驱动本机工具，请像对待密码一样保管（样例用 `file:` 引用避免明文落盘）。
+大多数用户不需要本附录。无界面模式（`ltb-host serve-mcp`）没有审批窗口，需要确认的调用会被直接拒绝；且隧道需要自行用外部 `tunnel-client` 运行，并把本机共享令牌配置进它的环境变量。要点：
 
-* 策略、路径沙箱、命令拒绝名单、私网拦截对 MCP 调用**完全生效**—— 没有第二套
+1. 启动 MCP 端点：`./src/target/release/ltb-host serve-mcp --mcp-port 8789`，记下打印的地址与令牌（令牌文件：Windows `%APPDATA%\local-tool-bridge\secret`、macOS `~/Library/Application Support/local-tool-bridge/secret`、Linux `~/.config/local-tool-bridge/secret`）；
+2. 配置 `tunnel-client`（[openai/tunnel-client](https://github.com/openai/tunnel-client/releases)）：`MCP_SERVER_URL` 指向上述地址，`MCP_EXTRA_HEADERS` 与 `MCP_DISCOVERY_EXTRA_HEADERS` 都携带 `x-dlb-secret`（推荐用 `file:` 引用令牌文件，避免明文进 shell 历史；`MCP_DISCOVERY_EXTRA_HEADERS` 不能省，否则启动探测会 401）；
+3. 用 `tunnel-client doctor --explain` 验证，`tunnel-client run` 常驻运行；之后在 ChatGPT 创建 Connector，步骤同第 3 步。
 
-  放宽的执行路径。
-
-* 隧道服务本身不知道你的本地 secret：`x-dlb-secret` 由本机 tunnel-client 在
-
-  转发时附加，只发给本机 MCP 端点。
-
-* 无审批窗口的 `ltb-host serve-mcp` 会 fail-closed，需要审批的工具一律拒绝。
-
-## 7. 故障排查
-
-
-
-| 现象                               | 检查                                                                                                                 |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `tunnel-client doctor` 报 MCP 401 | `MCP_DISCOVERY_EXTRA_HEADERS` / `MCP_EXTRA_HEADERS` 里的 `x-dlb-secret` 与 `ltb-host` 打印的 secret 是否一致；secret 文件路径是否正确 |
-| `readyz` 显示 MCP not ready        | `ltb-gui` / `ltb-host serve-mcp` 是否在运行；`MCP_SERVER_URL` 端口是否与「状态」页一致                                               |
-| Connector 建了但 ChatGPT 说连不上       | 确认 `tunnel-client run` 在运行且 `readyz` 通过；tunnel 权限是否 Read + Use                                                     |
-| ChatGPT 报 `MCP server/discover response was invalid` | 本地 MCP 版本过旧：新协议（2026-07-28）要求 `server/discover` 返回规范的 `resultType: "complete"`、`supportedVersions`、`capabilities` 与 `_meta.serverInfo`，且所有 JSON-RPC 响应必须回显请求 `id`。重新 `cargo build -p ltb-gui` 并重启 ltb-gui 与 tunnel-client（当前版本已修复） |
-| 调用被拒绝（`isError` 内容为拒绝原因）         | 这是 bridge 策略 / 审批在拦截：在控制面板批准、或为该工具 / 目录配置允许规则                                                                      |
-| 工具名找不到                           | 工具名是 Codex 兼容形式（`read_file` 等），没有点号；可在「工具权限」页核对当前暴露的 5 个工具                                             |
-| 端口冲突                             | 手动 `serve-mcp` 默认 8789，若已开 `ltb-gui` 请改用 `--mcp-port` 换端口                                                          |
+配置样例见 `docs/tunnel-client.chatgpt.yaml`。

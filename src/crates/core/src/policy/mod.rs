@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::error::{BridgeError, Result};
 
 pub mod path;
-pub use path::{lexical_normalize, PathSandbox};
+
+pub use path::{PathSandbox, lexical_normalize};
 pub type Sandbox = PathSandbox;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -384,8 +385,8 @@ pub fn is_private_host(host: &str) -> bool {
             ip.is_loopback()
                 || ip.is_unspecified()
                 || ip.is_multicast()
-                || ip.is_unique_local()
-                || ip.is_unicast_link_local()
+                || (ip.segments()[0] & 0xfe00) == 0xfc00
+                || (ip.segments()[0] & 0xffc0) == 0xfe80
         }
     }
 }

@@ -25,11 +25,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::{watch, Semaphore};
+use tokio::sync::{Semaphore, watch};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -100,12 +100,20 @@ pub fn load_config() -> TunnelConfig {
     };
     match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text).unwrap_or_else(|error| {
-            tracing::error!(path = %path.display(), %error, "Secure MCP Tunnel config is malformed; using defaults");
+            tracing::error!(
+                path = %path.display(),
+                %error,
+                "Secure MCP Tunnel config is malformed; using defaults"
+            );
             TunnelConfig::default()
         }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => TunnelConfig::default(),
         Err(error) => {
-            tracing::error!(path = %path.display(), %error, "failed to read Secure MCP Tunnel config; using defaults");
+            tracing::error!(
+                path = %path.display(),
+                %error,
+                "failed to read Secure MCP Tunnel config; using defaults"
+            );
             TunnelConfig::default()
         }
     }
@@ -265,7 +273,11 @@ impl TunnelProcess {
             runtime.run(stop_rx).await;
         });
 
-        tracing::info!(tunnel_id = %config.tunnel_id, mcp_url, "native Rust Secure MCP Tunnel client started");
+        tracing::info!(
+            tunnel_id = %config.tunnel_id,
+            mcp_url,
+            "native Rust Secure MCP Tunnel client started"
+        );
         Ok(Self {
             stop_tx,
             task: Some(task),
@@ -353,7 +365,11 @@ impl RustTunnel {
                     backoff = Duration::from_millis(250);
                 }
                 Err(error) => {
-                    tracing::warn!(%error, backoff_ms = backoff.as_millis(), "Secure MCP Tunnel poll failed");
+                    tracing::warn!(
+                        %error,
+                        backoff_ms = backoff.as_millis(),
+                        "Secure MCP Tunnel poll failed"
+                    );
                     let _ = tokio::time::timeout(backoff, stop.changed()).await;
                     backoff = (backoff * 2).min(MAX_BACKOFF);
                 }
@@ -396,7 +412,11 @@ impl RustTunnel {
             "jsonrpc" => self.forward_jsonrpc(command, timeout).await,
             "session_termination" => self.terminate_session(command, timeout).await,
             other => {
-                tracing::warn!(request_id = %command.request_id, command_type = other, "unsupported Secure MCP Tunnel command type");
+                tracing::warn!(
+                    request_id = %command.request_id,
+                    command_type = other,
+                    "unsupported Secure MCP Tunnel command type"
+                );
                 Ok(())
             }
         }
@@ -434,7 +454,7 @@ impl RustTunnel {
         };
 
         let status = response.status().as_u16();
-        let headers = response_headers(&response.headers());
+        let headers = response_headers(response.headers());
         let bytes = response
             .bytes()
             .await
@@ -640,9 +660,7 @@ fn parse_duration(value: &str) -> Option<Duration> {
         b'u' => Some(Duration::from_micros(number)),
         b'm' => Some(Duration::from_millis(number)),
         b's' => Some(Duration::from_secs(number)),
-        b'h' => number
-            .checked_mul(3600)
-            .and_then(|seconds| Some(Duration::from_secs(seconds))),
+        b'h' => number.checked_mul(3600).map(Duration::from_secs),
         _ => None,
     }
 }

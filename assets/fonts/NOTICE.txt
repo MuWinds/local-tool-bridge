@@ -1,0 +1,8 @@
+Noto Sans CJK SC Regular
+
+Copyright 2022 The Noto Project Authors and contributors.
+Licensed under the SIL Open Font License, Version 1.1 (OFL-1.1).
+
+Source: https://github.com/notofonts/noto-cjk
+Font file: Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf
+License text: https://openfontlicense.org

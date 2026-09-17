@@ -7,19 +7,19 @@
 //! The GUI depends on this crate too, which is why it must stay free of any
 //! windowing or platform-specific code.
 
+pub use audit::{AuditEntry, AuditLog, AuditOutcome};
+pub use dispatch::{ApprovalChallenge, ApprovalDecision, Approver, Dispatcher};
+pub use error::{BridgeError, Result};
+pub use policy::{Effect, Policy, PolicyEngine, Rule, Verdict};
+pub use rpc::{Incoming, JsonRpcFailure, JsonRpcSuccess, PROTOCOL_VERSION, RequestId};
+pub use tools::{Tool, ToolContext, ToolDescriptor, ToolOutput, ToolRegistry};
+
 pub mod audit;
 pub mod dispatch;
 pub mod error;
 pub mod policy;
 pub mod rpc;
 pub mod tools;
-
-pub use audit::{AuditEntry, AuditLog, AuditOutcome};
-pub use dispatch::{ApprovalChallenge, ApprovalDecision, Approver, Dispatcher};
-pub use error::{BridgeError, Result};
-pub use policy::{Effect, Policy, PolicyEngine, Rule, Verdict};
-pub use rpc::{Incoming, JsonRpcFailure, JsonRpcSuccess, RequestId, PROTOCOL_VERSION};
-pub use tools::{Tool, ToolContext, ToolDescriptor, ToolOutput, ToolRegistry};
 
 /// Where the host keeps its state, per platform.
 ///

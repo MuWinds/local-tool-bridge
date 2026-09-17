@@ -1,0 +1,79 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+env:
+  # Must match the toolchain used by CI so a released binary is built by the
+  # same compiler that passed the test job.
+  RUST_STYLE: "1.94.0"
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: local-tool-bridge-windows-x64.zip
+            binary: ltb-gui.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: local-tool-bridge-linux-x64.tar.gz
+            binary: ltb-gui
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: local-tool-bridge-macos-arm64.tar.gz
+            binary: ltb-gui
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_STYLE }}
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libxdo-dev libxkbcommon-dev libwayland-dev
+      - run: cargo build --release --target ${{ matrix.target }} -p ltb-gui
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ..\dist | Out-Null
+          Copy-Item target\${{ matrix.target }}\release\${{ matrix.binary }} ..\dist\
+          Compress-Archive -Path ..\dist\${{ matrix.binary }} -DestinationPath ..\${{ matrix.archive }} -Force
+      - name: Package Unix
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p ../dist
+          cp target/${{ matrix.target }}/release/${{ matrix.binary }} ../dist/
+          tar -C ../dist -czf ../${{ matrix.archive }} ${{ matrix.binary }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: ${{ matrix.archive }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

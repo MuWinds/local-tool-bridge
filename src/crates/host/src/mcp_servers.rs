@@ -14,7 +14,7 @@ use ltb_core::tools::{
     ContentBlock, DefaultEffect, ObjectSchema, Tool, ToolContext, ToolDescriptor, ToolOutput,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
@@ -59,13 +59,21 @@ pub fn load_config() -> McpConfig {
         Ok(text) => match serde_json::from_str(&text) {
             Ok(config) => config,
             Err(error) => {
-                tracing::error!(path = %path.display(), %error, "MCP config is malformed; using an empty configuration");
+                tracing::error!(
+                    path = %path.display(),
+                    %error,
+                    "MCP config is malformed; using an empty configuration"
+                );
                 McpConfig::default()
             }
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => McpConfig::default(),
         Err(error) => {
-            tracing::error!(path = %path.display(), %error, "failed to read MCP config; using an empty configuration");
+            tracing::error!(
+                path = %path.display(),
+                %error,
+                "failed to read MCP config; using an empty configuration"
+            );
             McpConfig::default()
         }
     }
@@ -389,13 +397,11 @@ impl Tool for McpProxyTool {
             .unwrap_or_default();
         let blocks = content
             .into_iter()
-            .filter_map(|item| {
+            .map(|item| {
                 if item.get("type").and_then(Value::as_str) == Some("text") {
-                    Some(ContentBlock::text(
-                        item.get("text").and_then(Value::as_str).unwrap_or(""),
-                    ))
+                    ContentBlock::text(item.get("text").and_then(Value::as_str).unwrap_or(""))
                 } else {
-                    Some(ContentBlock::text(item.to_string()))
+                    ContentBlock::text(item.to_string())
                 }
             })
             .collect::<Vec<_>>();

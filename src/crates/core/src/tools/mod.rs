@@ -1,16 +1,16 @@
 //! Tool registry and the `Tool` trait.
 
-pub mod codex;
-pub mod fs;
-pub mod http;
-pub mod shell;
-
 use crate::error::{BridgeError, Result};
 use crate::policy::PolicyEngine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+pub mod codex;
+pub mod fs;
+pub mod http;
+pub mod shell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

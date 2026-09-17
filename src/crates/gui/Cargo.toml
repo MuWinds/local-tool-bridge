@@ -1,10 +1,10 @@
 [package]
 name = "ltb-gui"
-description = "Native desktop control panel for the local tool bridge."
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 license.workspace = true
+rust-version.workspace = true
+description = "Native desktop control panel for the local tool bridge."
 
 [[bin]]
 name = "ltb-gui"
@@ -14,18 +14,17 @@ path = "src/main.rs"
 ltb-core = { workspace = true }
 ltb-host = { path = "../host" }
 
+async-trait = "0.1"
+directories.workspace = true
 eframe.workspace = true
 egui_extras.workspace = true
-tray-icon.workspace = true
-single-instance.workspace = true
-
+open.workspace = true
+rfd = "0.15"
 serde.workspace = true
 serde_json.workspace = true
+single-instance.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-directories.workspace = true
-open.workspace = true
+tray-icon.workspace = true
 uuid.workspace = true
-rfd = "0.15"
-async-trait = "0.1"

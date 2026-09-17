@@ -128,16 +128,14 @@ impl BridgeApp {
             .runtime
             .block_on(self.dispatcher.replace_policy(policy))
         {
-            Ok(revision) => {
-                match ltb_host::save_policy(&self.policy) {
-                    Ok(path) => {
-                        self.policy.revision = revision;
-                        self.dirty = false;
-                        self.toast = Some((format!("策略已保存到 {}", path.display()), true));
-                    }
-                    Err(e) => self.toast = Some((format!("保存策略文件失败：{e}"), false)),
+            Ok(revision) => match ltb_host::save_policy(&self.policy) {
+                Ok(path) => {
+                    self.policy.revision = revision;
+                    self.dirty = false;
+                    self.toast = Some((format!("策略已保存到 {}", path.display()), true));
                 }
-            }
+                Err(e) => self.toast = Some((format!("保存策略文件失败：{e}"), false)),
+            },
             Err(e) => self.toast = Some((format!("策略无效：{e}"), false)),
         }
     }

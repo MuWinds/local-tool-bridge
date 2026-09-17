@@ -87,7 +87,12 @@ async fn handshake_reports_the_capabilities() {
     let reply = call(
         &dispatcher,
         "bridge.hello",
-        json!({ "protocolVersion": "0.1.0", "clientVersion": "test", "clientId": "t", "transports": [] }),
+        json!({
+            "protocolVersion": "0.1.0",
+            "clientVersion": "test",
+            "clientId": "t",
+            "transports": [],
+        }),
     )
     .await;
 
@@ -111,7 +116,12 @@ async fn a_protocol_major_mismatch_is_refused() {
     let reply = call(
         &dispatcher,
         "bridge.hello",
-        json!({ "protocolVersion": "2.0.0", "clientVersion": "test", "clientId": "t", "transports": [] }),
+        json!({
+            "protocolVersion": "2.0.0",
+            "clientVersion": "test",
+            "clientId": "t",
+            "transports": [],
+        }),
     )
     .await;
 
@@ -146,10 +156,12 @@ async fn an_allowed_tool_executes_and_is_audited() {
     )
     .await;
 
-    assert!(reply["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap()
-        .contains("a.txt"));
+    assert!(
+        reply["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("a.txt")
+    );
 
     let entries = dispatcher.audit().recent(10).await;
     assert_eq!(entries.len(), 1);
@@ -350,7 +362,12 @@ async fn malformed_arguments_are_rejected_before_policy_runs() {
     let reply = call(
         &dispatcher,
         "tools.call",
-        json!({ "name": "fs.list_dir", "arguments": { "path": 42 }, "callId": "c7", "origin": "x" }),
+        json!({
+            "name": "fs.list_dir",
+            "arguments": { "path": 42 },
+            "callId": "c7",
+            "origin": "x",
+        }),
     )
     .await;
 
@@ -431,9 +448,12 @@ async fn output_is_truncated_to_the_configured_limit() {
         "tools.call",
         json!({
             "name": "fs.read_file",
-            "arguments": { "path": workspace.path().join("big.txt").display().to_string(), "limit": 5000 },
+            "arguments": {
+                "path": workspace.path().join("big.txt").display().to_string(),
+                "limit": 5000,
+            },
             "callId": "c9",
-            "origin": "x"
+            "origin": "x",
         }),
     )
     .await;

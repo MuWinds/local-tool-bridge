@@ -1,0 +1,7 @@
+# The Rust Style Guide describes the Rust 2024 style edition, so pin it here
+# rather than inheriting it from `edition` (which stays 2021 because the crates
+# must still build on the 1.88 MSRV). See <https://doc.rust-lang.org/style-guide/>.
+#
+# `style_edition` requires rustfmt 1.9.0 or newer, first shipped in Rust 1.94,
+# so `cargo fmt` needs a newer toolchain than the crates themselves do.
+style_edition = "2024"

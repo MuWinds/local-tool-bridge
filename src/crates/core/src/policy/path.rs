@@ -297,12 +297,16 @@ mod tests {
     fn containment_accepts_paths_inside_the_root() {
         let workspace = TempDir::new("inside");
         let sandbox = PathSandbox::new([workspace.path.clone()]);
-        assert!(sandbox
-            .assert_contained(&workspace.join("file.txt"))
-            .is_ok());
-        assert!(sandbox
-            .assert_contained(&workspace.join("a/b/c.txt"))
-            .is_ok());
+        assert!(
+            sandbox
+                .assert_contained(&workspace.join("file.txt"))
+                .is_ok()
+        );
+        assert!(
+            sandbox
+                .assert_contained(&workspace.join("a/b/c.txt"))
+                .is_ok()
+        );
     }
 
     #[test]
@@ -320,21 +324,27 @@ mod tests {
     fn containment_rejects_traversal() {
         let workspace = TempDir::new("traversal");
         let sandbox = PathSandbox::new([workspace.path.clone()]);
-        assert!(sandbox
-            .assert_contained(&workspace.join("../../etc/passwd"))
-            .is_err());
-        assert!(sandbox
-            .assert_contained(&workspace.join("..").join("escape"))
-            .is_err());
+        assert!(
+            sandbox
+                .assert_contained(&workspace.join("../../etc/passwd"))
+                .is_err()
+        );
+        assert!(
+            sandbox
+                .assert_contained(&workspace.join("..").join("escape"))
+                .is_err()
+        );
     }
 
     #[test]
     fn empty_sandbox_rejects_everything() {
         let sandbox = PathSandbox::default();
         assert!(sandbox.is_empty());
-        assert!(sandbox
-            .assert_contained(Path::new("/tmp/anything"))
-            .is_err());
+        assert!(
+            sandbox
+                .assert_contained(Path::new("/tmp/anything"))
+                .is_err()
+        );
     }
 
     #[test]

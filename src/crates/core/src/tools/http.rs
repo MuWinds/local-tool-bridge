@@ -13,11 +13,11 @@
 
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{
-    clamp_u64, optional_str, optional_u64, required_str, Tool, ToolContext, ToolDescriptor,
-    ToolOutput,
+    Tool, ToolContext, ToolDescriptor, ToolOutput, clamp_u64, optional_str, optional_u64,
+    required_str,
 };
 use crate::error::{BridgeError, Result};
 use crate::policy::{host_matches, is_private_host};
@@ -37,7 +37,11 @@ impl Tool for Request {
         ToolDescriptor {
             name: "http.request".into(),
             summary: "Make an HTTP request to an allowlisted host".into(),
-            description: "Performs an HTTP request and returns status, headers, and body. Only hosts on the user's allowlist are reachable; loopback and private ranges are blocked by default to prevent the model from reaching internal services.".into(),
+            description: "Performs an HTTP request and returns status, headers, and body. Only \
+                          hosts on the user's allowlist are reachable; loopback and private \
+                          ranges are blocked by default to prevent the model from reaching \
+                          internal services."
+                .into(),
             category: "http".into(),
             mutating: true,
             default_effect: super::DefaultEffect::Ask,
@@ -46,11 +50,28 @@ impl Tool for Request {
                 schema_type: "object".into(),
                 properties: serde_json::from_value(json!({
                     "url": { "type": "string", "description": "Absolute http(s) URL" },
-                    "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"], "default": "GET" },
+                    "method": {
+                        "type": "string",
+                        "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
+                        "default": "GET",
+                    },
                     "headers": { "type": "object", "description": "Request headers" },
-                    "body": { "type": "string", "description": "Request body for non-GET methods" },
-                    "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 120000, "default": 30000 },
-                    "maxBytes": { "type": "integer", "minimum": 1, "maximum": 10485760, "default": 1048576 }
+                    "body": {
+                        "type": "string",
+                        "description": "Request body for non-GET methods",
+                    },
+                    "timeoutMs": {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 120000,
+                        "default": 30000,
+                    },
+                    "maxBytes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10485760,
+                        "default": 1048576,
+                    },
                 }))
                 .expect("schema must be an object"),
                 required: vec!["url".into()],
@@ -230,7 +251,8 @@ impl Request {
         let allowed = context.policy.allowed_hosts();
         if allowed.is_empty() {
             return Err(BridgeError::host_not_allowed(
-                "No hosts are allowlisted; add one in the bridge settings before making HTTP requests",
+                "No hosts are allowlisted; add one in the bridge settings before making \
+                 HTTP requests",
             ));
         }
 

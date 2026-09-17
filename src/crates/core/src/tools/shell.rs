@@ -1,8 +1,8 @@
 //! `shell.exec` — run a command and capture its output.
 //!
-//! The caller may choose the shell backend explicitly. On Windows we support
-//! PowerShell, Git Bash, WSL, and the legacy cmd.exe backend. Each invocation
-//! starts a fresh shell process; use `cwd` rather than relying on shell state.
+//! The caller may choose the shell backend explicitly. Windows supports
+//! PowerShell, Git Bash, WSL, and cmd.exe; Unix platforms support sh, bash,
+//! zsh, and fish. Each invocation starts a fresh shell process.
 //!
 //! The real guardrails live in `policy`: a destructive-command denylist that no
 //! rule can override, and a default `ask` verdict. This module only adds
@@ -11,12 +11,12 @@
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::AsyncReadExt;
 
 use super::{
-    clamp_u64, optional_str, optional_u64, required_str, Tool, ToolContext, ToolDescriptor,
-    ToolOutput,
+    Tool, ToolContext, ToolDescriptor, ToolOutput, clamp_u64, optional_str, optional_u64,
+    required_str,
 };
 use crate::error::{BridgeError, Result};
 
@@ -31,43 +31,84 @@ pub struct Exec;
 /// `dsh-bash-terminal` plugin so clients can present the same dropdown/enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ShellKind {
+    #[cfg(windows)]
     PowerShell,
+    #[cfg(windows)]
     GitBash,
+    #[cfg(windows)]
     Wsl,
+    #[cfg(windows)]
     Cmd,
+    #[cfg(unix)]
+    Sh,
+    #[cfg(unix)]
+    Bash,
+    #[cfg(unix)]
+    Zsh,
+    #[cfg(unix)]
+    Fish,
 }
 
 impl ShellKind {
     fn parse(value: Option<&str>) -> Result<Self> {
-        match value.unwrap_or_else(|| if cfg!(windows) { "powershell" } else { "sh" }) {
+        let default = if cfg!(windows) { "powershell" } else { "sh" };
+        match value.unwrap_or(default) {
+            #[cfg(windows)]
             "powershell" | "pwsh" => Ok(Self::PowerShell),
+            #[cfg(windows)]
             "gitbash" | "git-bash" | "git_bash" => Ok(Self::GitBash),
+            #[cfg(windows)]
             "wsl" => Ok(Self::Wsl),
+            #[cfg(windows)]
             "cmd" | "cmd.exe" => Ok(Self::Cmd),
-            "sh" if !cfg!(windows) => Ok(Self::Cmd),
+            #[cfg(unix)]
+            "sh" => Ok(Self::Sh),
+            #[cfg(unix)]
+            "bash" => Ok(Self::Bash),
+            #[cfg(unix)]
+            "zsh" => Ok(Self::Zsh),
+            #[cfg(unix)]
+            "fish" => Ok(Self::Fish),
             other => Err(BridgeError::invalid_params(format!(
-                "Unsupported shell `{other}`. Supported shells: powershell, gitbash, wsl, cmd"
+                "Unsupported shell `{other}` on this platform"
             ))),
         }
     }
 
     fn name(self) -> &'static str {
         match self {
+            #[cfg(windows)]
             Self::PowerShell => "powershell",
+            #[cfg(windows)]
             Self::GitBash => "gitbash",
+            #[cfg(windows)]
             Self::Wsl => "wsl",
+            #[cfg(windows)]
             Self::Cmd => "cmd",
+            #[cfg(unix)]
+            Self::Sh => "sh",
+            #[cfg(unix)]
+            Self::Bash => "bash",
+            #[cfg(unix)]
+            Self::Zsh => "zsh",
+            #[cfg(unix)]
+            Self::Fish => "fish",
         }
     }
 
+    /// Builds the program and arguments for this backend.
+    ///
+    /// `distro` only selects a WSL distribution, so it is unused elsewhere.
+    #[cfg_attr(unix, allow(unused_variables))]
     fn command_line(
         self,
         command: &str,
         distro: Option<&str>,
     ) -> Result<(&'static str, Vec<String>)> {
         match self {
+            #[cfg(windows)]
             Self::PowerShell => Ok((
-                if cfg!(windows) { "pwsh.exe" } else { "pwsh" },
+                "pwsh.exe",
                 vec![
                     "-NoLogo".into(),
                     "-NoProfile".into(),
@@ -76,20 +117,10 @@ impl ShellKind {
                     command.into(),
                 ],
             )),
-            Self::GitBash => {
-                if !cfg!(windows) {
-                    return Err(BridgeError::invalid_params(
-                        "Git Bash is only available on Windows",
-                    ));
-                }
-                Ok(("bash.exe", vec!["-lc".into(), command.into()]))
-            }
+            #[cfg(windows)]
+            Self::GitBash => Ok(("bash.exe", vec!["-lc".into(), command.into()])),
+            #[cfg(windows)]
             Self::Wsl => {
-                if !cfg!(windows) {
-                    return Err(BridgeError::invalid_params(
-                        "WSL is only available on Windows",
-                    ));
-                }
                 let mut args = Vec::new();
                 if let Some(distro) = distro {
                     if distro.trim().is_empty() {
@@ -103,14 +134,16 @@ impl ShellKind {
                 args.extend(["-e".into(), "bash".into(), "-lc".into(), command.into()]);
                 Ok(("wsl.exe", args))
             }
-            Self::Cmd => {
-                if !cfg!(windows) {
-                    return Err(BridgeError::invalid_params(
-                        "cmd.exe is only available on Windows",
-                    ));
-                }
-                Ok(("cmd.exe", vec!["/C".into(), command.into()]))
-            }
+            #[cfg(windows)]
+            Self::Cmd => Ok(("cmd.exe", vec!["/C".into(), command.into()])),
+            #[cfg(unix)]
+            Self::Sh => Ok(("sh", vec!["-lc".into(), command.into()])),
+            #[cfg(unix)]
+            Self::Bash => Ok(("bash", vec!["-lc".into(), command.into()])),
+            #[cfg(unix)]
+            Self::Zsh => Ok(("zsh", vec!["-lc".into(), command.into()])),
+            #[cfg(unix)]
+            Self::Fish => Ok(("fish", vec!["-lc".into(), command.into()])),
         }
     }
 }
@@ -121,7 +154,13 @@ impl Tool for Exec {
         ToolDescriptor {
             name: "shell.exec".into(),
             summary: "Run a shell command and capture its output".into(),
-            description: "Executes a command using the selected shell backend. On Windows the available backends are PowerShell, Git Bash, WSL, and cmd.exe. Each invocation starts a fresh shell. The host enforces a timeout and a command denylist; every invocation requires approval unless the user has allowlisted the exact command.".into(),
+            description: "Executes a command using the selected shell backend. Windows \
+                          supports PowerShell, Git Bash, WSL, and cmd.exe; Unix platforms \
+                          support sh, bash, zsh, and fish. Each invocation starts a fresh \
+                          shell. The host enforces a timeout and a command denylist; every \
+                          invocation requires approval unless the user has allowlisted the \
+                          exact command."
+                .into(),
             category: "shell".into(),
             mutating: true,
             default_effect: super::DefaultEffect::Ask,
@@ -131,9 +170,17 @@ impl Tool for Exec {
                 properties: serde_json::from_value(json!({
                     "command": { "type": "string", "description": "Command line to execute" },
                     "cwd": { "type": "string", "description": "Absolute working directory" },
-                    "timeoutMs": { "type": "integer", "minimum": 100, "maximum": 600000, "default": 60000 },
-                    "stdin": { "type": "string", "description": "Text piped to the process's stdin" },
-                    "env": { "type": "object", "description": "Extra environment variables" }
+                    "timeoutMs": {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 600000,
+                        "default": 60000,
+                    },
+                    "stdin": {
+                        "type": "string",
+                        "description": "Text piped to the process's stdin",
+                    },
+                    "env": { "type": "object", "description": "Extra environment variables" },
                 }))
                 .expect("schema must be an object"),
                 required: vec!["command".into()],
@@ -219,17 +266,21 @@ impl Tool for Exec {
             (out, err, status)
         };
 
-        let (stdout_bytes, stderr_bytes, status) =
-            match tokio::time::timeout(Duration::from_millis(timeout_ms), collect).await {
-                Ok(value) => value,
-                Err(_) => {
-                    let _ = child.kill().await;
-                    return Ok(ToolOutput::error(format!(
+        let (stdout_bytes, stderr_bytes, status) = match tokio::time::timeout(
+            Duration::from_millis(timeout_ms),
+            collect,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(_) => {
+                let _ = child.kill().await;
+                return Ok(ToolOutput::error(format!(
                     "Command timed out after {timeout_ms} ms and was terminated:\n[{}] {command}",
                     shell.name()
                 )));
-                }
-            };
+            }
+        };
 
         let status =
             status.map_err(|error| BridgeError::from_io("Failed to await shell", error))?;
@@ -286,40 +337,63 @@ mod tests {
 
     #[test]
     fn parses_supported_shells() {
-        assert_eq!(
-            ShellKind::parse(Some("powershell")).unwrap(),
-            ShellKind::PowerShell
-        );
-        assert_eq!(
-            ShellKind::parse(Some("gitbash")).unwrap(),
-            ShellKind::GitBash
-        );
-        assert_eq!(ShellKind::parse(Some("wsl")).unwrap(), ShellKind::Wsl);
-        assert_eq!(ShellKind::parse(Some("cmd")).unwrap(), ShellKind::Cmd);
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                ShellKind::parse(Some("powershell")).unwrap(),
+                ShellKind::PowerShell
+            );
+            assert_eq!(
+                ShellKind::parse(Some("gitbash")).unwrap(),
+                ShellKind::GitBash
+            );
+            assert_eq!(ShellKind::parse(Some("wsl")).unwrap(), ShellKind::Wsl);
+            assert_eq!(ShellKind::parse(Some("cmd")).unwrap(), ShellKind::Cmd);
+        }
+        #[cfg(unix)]
+        {
+            assert_eq!(ShellKind::parse(Some("sh")).unwrap(), ShellKind::Sh);
+            assert_eq!(ShellKind::parse(Some("bash")).unwrap(), ShellKind::Bash);
+            assert_eq!(ShellKind::parse(Some("zsh")).unwrap(), ShellKind::Zsh);
+            assert_eq!(ShellKind::parse(Some("fish")).unwrap(), ShellKind::Fish);
+        }
     }
 
     #[test]
     fn rejects_unknown_shell() {
+        #[cfg(windows)]
         assert!(ShellKind::parse(Some("fish")).is_err());
+        #[cfg(unix)]
+        assert!(ShellKind::parse(Some("powershell")).is_err());
     }
 
     #[test]
+    #[cfg(windows)]
     fn builds_gitbash_command() {
-        if cfg!(windows) {
-            let (program, args) = ShellKind::GitBash.command_line("git status", None).unwrap();
-            assert_eq!(program, "bash.exe");
-            assert_eq!(args, vec!["-lc", "git status"]);
-        }
+        let (program, args) = ShellKind::GitBash.command_line("git status", None).unwrap();
+        assert_eq!(program, "bash.exe");
+        assert_eq!(args, vec!["-lc", "git status"]);
     }
 
     #[test]
+    #[cfg(windows)]
     fn builds_wsl_command_with_distro() {
-        if cfg!(windows) {
-            let (program, args) = ShellKind::Wsl
-                .command_line("ls -la", Some("Ubuntu"))
-                .unwrap();
-            assert_eq!(program, "wsl.exe");
-            assert_eq!(args, vec!["-d", "Ubuntu", "-e", "bash", "-lc", "ls -la"]);
-        }
+        let (program, args) = ShellKind::Wsl
+            .command_line("ls -la", Some("Ubuntu"))
+            .unwrap();
+        assert_eq!(program, "wsl.exe");
+        assert_eq!(args, vec!["-d", "Ubuntu", "-e", "bash", "-lc", "ls -la"]);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn builds_unix_command_lines() {
+        let (program, args) = ShellKind::Sh.command_line("ls -la", None).unwrap();
+        assert_eq!(program, "sh");
+        assert_eq!(args, vec!["-lc", "ls -la"]);
+
+        let (program, args) = ShellKind::Fish.command_line("ls -la", None).unwrap();
+        assert_eq!(program, "fish");
+        assert_eq!(args, vec!["-lc", "ls -la"]);
     }
 }
