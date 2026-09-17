@@ -1,0 +1,25 @@
+{
+  "name": "local-tool-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Give the AI web app the ability to call local tools, via a Chrome extension bridged to a cross-platform Rust/Tauri host.",
+  "packageManager": "pnpm@10.17.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:protocol": "pnpm --filter @dlb/protocol build",
+    "build:extension": "pnpm --filter @dlb/extension build",
+    "dev:extension": "pnpm --filter @dlb/extension dev",
+    "dev:desktop": "pnpm --filter @dlb/desktop dev",
+    "build:desktop": "pnpm --filter @dlb/desktop build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

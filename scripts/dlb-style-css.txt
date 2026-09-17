@@ -1,0 +1,41 @@
+const STYLE_CSS = `
+/* An emptied user bubble was pure bridge plumbing. */
+.ds-message[${EMPTY_ATTR}="1"] { display: none !important; }
+
+/* A user turn that is a tool-result card: a card, not a chat bubble. */
+.ds-message[${RESULT_ATTR}="1"] .fbb737a4 {
+  max-width: 100% !important;
+  border-radius: 12px !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+/* The card itself. */
+${CARD_SELECTOR} {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
+  color: var(--dsw-alias-label-secondary, currentColor);
+  background: linear-gradient(180deg, rgba(127, 127, 127, 0.10), rgba(127, 127, 127, 0.05));
+  border: 1px solid rgba(127, 127, 127, 0.20);
+  border-radius: 10px;
+  padding: 10px 13px;
+  margin: 8px 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.ds-message[${RESULT_ATTR}="1"] ${CARD_SELECTOR} {
+  background: linear-gradient(180deg, rgba(127, 127, 127, 0.14), rgba(127, 127, 127, 0.09));
+  border-color: rgba(127, 127, 127, 0.26);
+}
+
+/* A paragraph that carries nothing but a card is collapsed, so an answer made of
+   calls alone does not leave blank lines behind. */
+.ds-markdown-paragraph:has([${CARD_ATTR}="1"]),
+li:has([${CARD_ATTR}="1"]) {
+  margin: 0 !important;
+}
+`;

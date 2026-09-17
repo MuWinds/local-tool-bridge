@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Local Tool Bridge",
+  "version": "0.1.1",
+  "description": "Let the AI web app call tools on your own machine — files, shell, and HTTP — through a local Rust bridge you control.",
+  "minimum_chrome_version": "116",
+
+  "permissions": ["storage", "nativeMessaging", "tabs"],
+  "host_permissions": [
+    "https://chat.deepseek.com/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": ["main-world.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED",
+      "all_frames": false
+    }
+  ],
+
+  "action": {
+    "default_title": "Local Tool Bridge",
+    "default_popup": "popup.html"
+  },
+
+  "web_accessible_resources": [],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*"
+  }
+}

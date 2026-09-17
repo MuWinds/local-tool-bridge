@@ -1,0 +1,16 @@
+{
+  "revision": 0,
+  "rules": [
+    { "tool": "fs.read_file", "effect": "allow", "note": "e2e test" },
+    { "tool": "fs.list_dir", "effect": "allow", "note": "e2e test" },
+    { "tool": "fs.search", "effect": "allow", "note": "e2e test" },
+    { "tool": "fs.write_file", "effect": "allow", "note": "e2e test" },
+    { "tool": "shell.exec", "effect": "allow", "note": "e2e test" },
+    { "tool": "http.request", "effect": "deny", "note": "e2e test: keep the network out of it" }
+  ],
+  "roots": ["C:\\Users\\MuWinds\\Desktop\\dlb-test-workspace"],
+  "allowedHosts": [],
+  "allowPrivateNetwork": false,
+  "defaultTimeoutMs": 30000,
+  "maxOutputChars": 20000
+}

@@ -1,0 +1,46 @@
+# tunnel-client profile for connecting ChatGPT to the Local Tool Bridge.
+#
+# Copy this file to ~/.config/tunnel-client/chatgpt.yaml (Windows: %USERPROFILE%\.config\tunnel-client\chatgpt.yaml)
+# or use it with: tunnel-client run --profile-file ./docs/tunnel-client.chatgpt.yaml
+#
+# Required inputs before running:
+#   1. CONTROL_PLANE_API_KEY  — a Runtime API key from
+#      https://platform.openai.com/settings/organization/api-keys
+#   2. tunnel_id              — from https://platform.openai.com/settings/organization/tunnels
+#   3. The MCP URL shown on the bridge control panel "状态" page (ltb-gui),
+#      or the address printed by `ltb-host serve-mcp`.
+
+config_version: 1
+
+control_plane:
+  # Create/inspect in Tunnels management. Format: tunnel_ + 32 lowercase hex.
+  tunnel_id: tunnel_0123456789abcdef0123456789abcdef
+  api_key: env:CONTROL_PLANE_API_KEY
+
+log:
+  level: info
+  format: struct-text
+
+health:
+  listen_addr: 127.0.0.1:8080
+
+mcp:
+  server_urls:
+    - channel: main
+      # Match the address printed by the bridge. Default port for a headless
+      # `ltb-host serve-mcp` is 8789; the control panel usually uses 8790.
+      url: http://127.0.0.1:8790/mcp
+  # The bridge secret gates every /mcp request. The `file:` reference reads the
+  # persisted secret without putting it in this file or the shell history.
+  # Windows: %APPDATA%\local-tool-bridge\config\secret
+  # macOS:   ~/Library/Application Support/local-tool-bridge/secret
+  # Linux:   ~/.config/local-tool-bridge/secret
+  extra_headers:
+    x-dlb-secret: file:C:/Users/<you>/AppData/Roaming/local-tool-bridge/config/secret
+  # tunnel-client's startup initialize probe uses these headers; without them
+  # /readyz stays not-ready even though the daemon polls fine.
+  discovery_extra_headers:
+    x-dlb-secret: file:C:/Users/<you>/AppData/Roaming/local-tool-bridge/config/secret
+  # Wait for the bridge listener before the first poll, so ltb-gui /
+  # ltb-host serve-mcp and tunnel-client can start together.
+  startup_wait_timeout: 60s
