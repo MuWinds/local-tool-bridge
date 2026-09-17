@@ -10,7 +10,7 @@ use crate::policy::PolicyEngine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -134,21 +134,6 @@ pub trait Tool: Send + Sync {
     fn descriptor(&self) -> ToolDescriptor;
     async fn execute(&self, arguments: Value, context: &ToolContext<'_>) -> Result<ToolOutput>;
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ToolSchemaProfile {
-    Bridge,
-    Codex,
-}
-impl Default for ToolSchemaProfile {
-    fn default() -> Self {
-        Self::Bridge
-    }
-}
-fn profile_cell() -> &'static RwLock<ToolSchemaProfile> {
-    static C: OnceLock<RwLock<ToolSchemaProfile>> = OnceLock::new();
-    C.get_or_init(|| RwLock::new(ToolSchemaProfile::Bridge))
-}
 pub struct ToolRegistry {
     tools: BTreeMap<String, Arc<dyn Tool>>,
 }
@@ -179,25 +164,11 @@ impl ToolRegistry {
     pub fn require(&self, n: &str) -> Result<&Arc<dyn Tool>> {
         self.get(n).ok_or_else(|| BridgeError::tool_not_found(n))
     }
-    pub fn set_schema_profile(&self, p: ToolSchemaProfile) {
-        *profile_cell()
-            .write()
-            .expect("schema profile lock poisoned") = p;
-    }
-    pub fn schema_profile(&self) -> ToolSchemaProfile {
-        *profile_cell().read().expect("schema profile lock poisoned")
-    }
+    /// Descriptors for the tools exposed to clients: the Codex-compatible set.
     pub fn descriptors(&self) -> Vec<ToolDescriptor> {
-        let p = self.schema_profile();
         self.tools
             .values()
-            .filter(|t| {
-                let d = t.descriptor();
-                match p {
-                    ToolSchemaProfile::Bridge => !d.category.starts_with("codex-"),
-                    ToolSchemaProfile::Codex => d.category.starts_with("codex-"),
-                }
-            })
+            .filter(|t| t.descriptor().category.starts_with("codex-"))
             .map(|t| t.descriptor())
             .collect()
     }

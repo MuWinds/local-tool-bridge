@@ -75,19 +75,6 @@ impl Verdict {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ToolSchemaProfile {
-    Bridge,
-    Codex,
-}
-
-impl Default for ToolSchemaProfile {
-    fn default() -> Self {
-        Self::Bridge
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Policy {
@@ -107,8 +94,6 @@ pub struct Policy {
     pub max_output_chars: usize,
     #[serde(default = "default_shell")]
     pub default_shell: String,
-    #[serde(default)]
-    pub tool_schema: ToolSchemaProfile,
 }
 
 fn default_timeout() -> u64 {
@@ -205,7 +190,6 @@ impl Default for Policy {
             default_timeout_ms: default_timeout(),
             max_output_chars: default_max_output(),
             default_shell: default_shell(),
-            tool_schema: ToolSchemaProfile::Bridge,
         }
     }
 }
@@ -290,9 +274,6 @@ impl PolicyEngine {
     }
     pub fn default_shell(&self) -> &str {
         &self.policy.default_shell
-    }
-    pub fn tool_schema(&self) -> ToolSchemaProfile {
-        self.policy.tool_schema
     }
 
     pub fn evaluate(&self, tool: &str, args: &serde_json::Value, default: Effect) -> Verdict {

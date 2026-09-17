@@ -1,7 +1,7 @@
 use crate::approver::PendingApproval;
 use ltb_core::audit::{AuditEntry, AuditLog};
 use ltb_core::dispatch::Dispatcher;
-use ltb_core::policy::{Effect, Policy, Rule, ToolSchemaProfile};
+use ltb_core::policy::{Effect, Policy, Rule};
 use ltb_host::mcp_servers::{McpConfig, McpServerConfig};
 use ltb_host::tunnel::{TunnelConfig, TunnelProcess};
 use std::collections::BTreeMap;
@@ -56,12 +56,6 @@ impl BridgeApp {
     ) -> Self {
         let audit = dispatcher.audit().clone();
         let policy = runtime.block_on(dispatcher.policy_snapshot());
-        dispatcher
-            .registry()
-            .set_schema_profile(match policy.tool_schema {
-                ToolSchemaProfile::Bridge => ltb_core::tools::ToolSchemaProfile::Bridge,
-                ToolSchemaProfile::Codex => ltb_core::tools::ToolSchemaProfile::Codex,
-            });
         let tunnel_config = ltb_host::tunnel::load_config();
         Self {
             runtime,
@@ -135,12 +129,6 @@ impl BridgeApp {
             .block_on(self.dispatcher.replace_policy(policy))
         {
             Ok(revision) => {
-                self.dispatcher
-                    .registry()
-                    .set_schema_profile(match self.policy.tool_schema {
-                        ToolSchemaProfile::Bridge => ltb_core::tools::ToolSchemaProfile::Bridge,
-                        ToolSchemaProfile::Codex => ltb_core::tools::ToolSchemaProfile::Codex,
-                    });
                 match ltb_host::save_policy(&self.policy) {
                     Ok(path) => {
                         self.policy.revision = revision;

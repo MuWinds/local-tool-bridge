@@ -28,7 +28,7 @@ OpenAI Secure MCP Tunnel 控制面  ── 长轮询 ──►  tunnel-client（
 
 &#x20;                                                ▼
 
-&#x20;                                       fs.\* / shell.exec / http.request
+&#x20;                                       read_file / list_dir / exec / unified_exec / apply_patch
 
 &#x20;                                       （策略 → 审批 → 执行 → 审计）
 ```
@@ -79,7 +79,7 @@ OpenAI Secure MCP Tunnel 控制面  ── 长轮询 ──►  tunnel-client（
 
 `bridge secret: <hex>`。注意：无界面宿主没有审批窗口，所有「需确认」的调用会
 
-被直接拒绝（fail-closed）—— 想用 `fs.write_file`、`shell.exec` 这类工具，请用
+被直接拒绝（fail-closed）—— 想用 `apply_patch`、`exec` 这类工具，请用
 
 方式 A，或在控制面板里把它们配置成「允许」。
 
@@ -262,7 +262,7 @@ curl -fsS "http://127.0.0.1:8080/health?details=true"
 
 3. **Authentication（身份验证）选 No Authentication**。走 Tunnel 时认证由 OpenAI 账号与隧道本身完成；本机 bridge 的 `x-dlb-secret` 由 tunnel-client 本地注入，ChatGPT 不需要也不应配任何身份验证——选 OAuth 会让「扫描工具」去请求一个不存在的 OAuth 端点而失败。
 
-4. 点 **Scan Tools / 扫描工具**，确认 `tunnel-client run` 正在运行且 `/readyz` 通过，扫描成功后应看到 6 个工具（`fs_read_file`、`fs_list_dir`、`fs_search`、`fs_write_file`、`shell_exec`、`http_request`）。
+4. 点 **Scan Tools / 扫描工具**，确认 `tunnel-client run` 正在运行且 `/readyz` 通过，扫描成功后应看到 5 个工具（`read_file`、`list_dir`、`exec`、`unified_exec`、`apply_patch`）。
 
 5. 点 **Create** 保存。
 
@@ -303,5 +303,5 @@ curl -fsS "http://127.0.0.1:8080/health?details=true"
 | Connector 建了但 ChatGPT 说连不上       | 确认 `tunnel-client run` 在运行且 `readyz` 通过；tunnel 权限是否 Read + Use                                                     |
 | ChatGPT 报 `MCP server/discover response was invalid` | 本地 MCP 版本过旧：新协议（2026-07-28）要求 `server/discover` 返回规范的 `resultType: "complete"`、`supportedVersions`、`capabilities` 与 `_meta.serverInfo`，且所有 JSON-RPC 响应必须回显请求 `id`。重新 `cargo build -p ltb-gui` 并重启 ltb-gui 与 tunnel-client（当前版本已修复） |
 | 调用被拒绝（`isError` 内容为拒绝原因）         | 这是 bridge 策略 / 审批在拦截：在控制面板批准、或为该工具 / 目录配置允许规则                                                                      |
-| 工具名找不到                           | MCP 名是下划线形式（`fs_read_file`）；旧 dotted 名（`fs.read_file`）也能调用                                                         |
+| 工具名找不到                           | 工具名是 Codex 兼容形式（`read_file` 等），没有点号；可在「工具权限」页核对当前暴露的 5 个工具                                             |
 | 端口冲突                             | 手动 `serve-mcp` 默认 8789，若已开 `ltb-gui` 请改用 `--mcp-port` 换端口                                                          |

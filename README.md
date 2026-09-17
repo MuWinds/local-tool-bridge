@@ -44,8 +44,8 @@ Origin 检查只用于廉价地挡掉明显无关的网页，且显式容忍缺�
 ### 三层防护
 
 1. **路径沙箱**：所有文件路径先规范化再校验，`..` 与符号链接都无法越出配置的工作目录。另有一份拒绝名单，即使工作目录设成了家目录，`.ssh`、`.env`、`*.pem` 之类也读不到。
-2. **命令拒绝名单**：`rm -rf`、磁盘格式化、fork bomb 等**优先级高于任何规则**。即使你写了一条 `shell.exec = 允许`，它们依然被拒绝 —— 因为一条能关掉它们的规则，迟早会被误写出来。
-3. **私网拦截**：`http.request` 默认拒绝环回、RFC1918、链路本地地址。这不只是洁癖：否则一次提示词注入，就可能让模型去读云环境的元数据端点（`169.254.169.254`）。重定向会逐跳重新校验，所以"公网 URL 302 到内网"这条路径也被堵住。
+2. **命令拒绝名单**：`rm -rf`、磁盘格式化、fork bomb 等**优先级高于任何规则**。即使你写了一条 `exec = 允许`，它们依然被拒绝 —— 因为一条能关掉它们的规则，迟早会被误写出来。
+3. **私网拦截**：HTTP 工具默认拒绝环回、RFC1918、链路本地地址。这不只是洁癖：否则一次提示词注入，就可能让模型去读云环境的元数据端点（`169.254.169.254`）。重定向会逐跳重新校验，所以"公网 URL 302 到内网"这条路径也被堵住。
 
 ### 默认拒绝，而不是默认放行
 
@@ -98,8 +98,6 @@ cd apps/desktop && cargo build --release
 
 **默认策略下所有文件工具都会被拒绝**，因为还没有允许任何目录。在控制面板的「工具与策略」页添加工作目录，例如 `C:\Users\me\project`，然后点「保存策略」。
 
-HTTP 工具同理，需要在白名单里添加域名。
-
 ### 4. 接入 ChatGPT
 
 见 [ChatGPT 接入（MCP）](#chatgpt-接入mcp) 与 [`docs/chatgpt-mcp.md`](docs/chatgpt-mcp.md)：在本机运行 `tunnel-client`，把 `MCP_SERVER_URL` 指到 MCP 端点，通过 `MCP_EXTRA_HEADERS` / `MCP_DISCOVERY_EXTRA_HEADERS` 携带 `x-dlb-secret`，再在 ChatGPT 设置里创建 Connector。
@@ -108,7 +106,7 @@ HTTP 工具同理，需要在白名单里添加域名。
 
 ## ChatGPT 接入（MCP）
 
-`ltb-host` 提供 **MCP（Model Context Protocol）端点**（`http://127.0.0.1:<port>/mcp`），让 ChatGPT / Codex 通过 OpenAI 官方的 **Secure MCP Tunnel**（`openai/tunnel-client`）调用本机工具。工具以 MCP 安全的形式暴露（点号替换为下划线：`fs_read_file`、`fs_list_dir`、`fs_search`、`fs_write_file`、`shell_exec`、`http_request`）。
+`ltb-host` 提供 **MCP（Model Context Protocol）端点**（`http://127.0.0.1:<port>/mcp`），让 ChatGPT / Codex 通过 OpenAI 官方的 **Secure MCP Tunnel**（`openai/tunnel-client`）调用本机工具。工具以 Codex 兼容的形式暴露：`read_file`、`list_dir`、`exec`、`unified_exec`、`apply_patch`（MCP 工具名与这里一致）。
 
 ```text
 ChatGPT Connector → OpenAI 隧道服务 → tunnel-client（本机）→ ltb-host /mcp → 本地工具
@@ -127,14 +125,15 @@ ChatGPT Connector → OpenAI 隧道服务 → tunnel-client（本机）→ ltb-h
 
 ## 内置工具
 
+模型通过 MCP 只能看到 Codex 兼容的 5 个工具：
+
 | 工具 | 默认权限 | 说明 |
 | --- | --- | --- |
-| `fs.read_file` | 需确认 | 读取文本文件。默认带行号；传 `lineNumbers: false` 可拿到**逐字节一致**的原文。二进制文件会被拒绝而不是返回乱码。 |
-| `fs.list_dir` | 允许 | 列目录，可选递归与 glob 过滤。 |
-| `fs.search` | 允许 | 正则搜索文件内容，返回行号。自动跳过 `.git`、`node_modules`。 |
-| `fs.write_file` | 需确认 | 写入 / 追加 / 仅创建。 |
-| `shell.exec` | 需确认 | 执行命令，捕获 stdout/stderr 与退出码。 |
-| `http.request` | 需确认 | HTTP 请求，仅限白名单域名。 |
+| `read_file` | 需确认 | 读取文本文件。默认带行号；传 `lineNumbers: false` 可拿到**逐字节一致**的原文。二进制文件会被拒绝而不是返回乱码。 |
+| `list_dir` | 允许 | 列目录，可选递归与 glob 过滤。 |
+| `exec` | 需确认 | 执行命令，捕获 stdout/stderr 与退出码。 |
+| `unified_exec` | 需确认 | Codex unified-exec 兼容形式，schema 与 `exec` 相同。 |
+| `apply_patch` | 需确认 | 应用 Codex 补丁格式（Add / Delete / Update / Move）。 |
 
 每个工具都可以单独设为「允许 / 需确认 / 禁止」。
 
@@ -186,11 +185,11 @@ node scripts/smoke-mcp.mjs           # 28 项：MCP 握手、server/discover、�
 
 留在这里是因为它们说明了哪些地方最容易出错。
 
-**其一：控制面板的中文全是豆腐块。** `eframe` 的 `default_fonts` 只带 Ubuntu-Light 与 NotoEmoji，两者都不含任何 CJK 字形，于是界面里每一个汉字都渲染成 `□`。这个缺陷的形态很有迷惑性：令牌、`127.0.0.1`、`fs.read_file` 这类 ASCII 全部正常，只有中文坏掉 —— 看起来像控件坏了，而不是字体缺字。修复方式是首帧之前挂上一份系统中文字体（`apps/desktop/crates/gui/src/fonts.rs`），并且**追加**到字体族末尾而不是替换：追加才能让英文沿用原本的排版度量，只对 Ubuntu 覆盖不到的字形回退。之所以用系统字体而不是内嵌，是因为内嵌一份 CJK 字体会让二进制膨胀 10–20 MB，对控制面板来说代价过高；找不到字体时程序照常启动，只是回到原来的样子。
+**其一：控制面板的中文全是豆腐块。** `eframe` 的 `default_fonts` 只带 Ubuntu-Light 与 NotoEmoji，两者都不含任何 CJK 字形，于是界面里每一个汉字都渲染成 `□`。这个缺陷的形态很有迷惑性：令牌、`127.0.0.1`、`read_file` 这类 ASCII 全部正常，只有中文坏掉 —— 看起来像控件坏了，而不是字体缺字。修复方式是首帧之前挂上一份系统中文字体（`apps/desktop/crates/gui/src/fonts.rs`），并且**追加**到字体族末尾而不是替换：追加才能让英文沿用原本的排版度量，只对 Ubuntu 覆盖不到的字形回退。之所以用系统字体而不是内嵌，是因为内嵌一份 CJK 字体会让二进制膨胀 10–20 MB，对控制面板来说代价过高；找不到字体时程序照常启动，只是回到原来的样子。
 
 **其二：审批链路从未被接通。** `request_approval` 注册了一个等待审批结果的通道，却**从未调用 `Approver`**。结果是控制面板的授权弹窗永远不会出现，每个"需确认"的调用都会干等满 180 秒然后被拒绝。单元测试全绿 —— 因为没有任何一个测试真正走完过带审批的完整调用。加上集成测试后立刻暴露：三个测试各挂起 60 秒以上。修复后 15 个测试在 0.14 秒内跑完。
 
-**其三：`fs.read_file` 会悄悄改写行尾。** 最初用 `str::lines()` 切分，它会吃掉 `\r\n` 里的 `\r`，也会给"末尾没有换行"的文件补一个。模型读一个 CRLF 文件再写回去，就会把整个文件的行尾改掉。改用 `split_inclusive('\n')` 保留原始终止符，并加了 `lineNumbers: false` 这个逐字节模式。
+**其三：`read_file` 会悄悄改写行尾。** 最初用 `str::lines()` 切分，它会吃掉 `\r\n` 里的 `\r`，也会给"末尾没有换行"的文件补一个。模型读一个 CRLF 文件再写回去，就会把整个文件的行尾改掉。改用 `split_inclusive('\n')` 保留原始终止符，并加了 `lineNumbers: false` 这个逐字节模式。
 
 ---
 

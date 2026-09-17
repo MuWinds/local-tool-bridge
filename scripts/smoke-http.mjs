@@ -38,9 +38,9 @@ writeFileSync(
     {
       revision: 0,
       rules: [
-        { tool: "fs.list_dir", effect: "allow" },
-        { tool: "fs.read_file", effect: "allow" },
-        { tool: "shell.exec", effect: "allow" },
+        { tool: "list_dir", effect: "allow" },
+        { tool: "read_file", effect: "allow" },
+        { tool: "exec", effect: "allow" },
       ],
       roots: [workspace],
       allowedHosts: [],
@@ -184,13 +184,13 @@ try {
 
   // 6. An authenticated tool listing.
   const list = await rpc("tools.list", {}, { secret });
-  check("tools.list returns descriptors", list.body.result?.tools?.length === 6);
+  check("tools.list returns descriptors", list.body.result?.tools?.length === 5);
 
   // 7. A real tool call over HTTP.
   const read = await rpc(
     "tools.call",
     {
-      name: "fs.read_file",
+      name: "read_file",
       arguments: { path: join(workspace, "note.txt") },
       callId: "http-1",
       origin: "local-test",
@@ -198,7 +198,7 @@ try {
     { secret },
   );
   check(
-    "fs.read_file returns the file body",
+    "read_file returns the file body",
     (read.body.result?.content?.[0]?.text ?? "").includes("beta"),
     JSON.stringify(read.body),
   );
@@ -207,7 +207,7 @@ try {
   const escape = await rpc(
     "tools.call",
     {
-      name: "fs.read_file",
+      name: "read_file",
       arguments: { path: policyPath },
       callId: "http-2",
       origin: "local-test",

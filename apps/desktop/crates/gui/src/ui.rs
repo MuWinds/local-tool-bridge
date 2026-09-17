@@ -2,7 +2,7 @@
 
 use crate::app::{BridgeApp, Tab};
 use eframe::egui::{self, Color32, RichText};
-use ltb_core::policy::{Effect, ToolSchemaProfile};
+use ltb_core::policy::Effect;
 use ltb_core::tools::DefaultEffect;
 
 pub fn draw(app: &mut BridgeApp, ctx: &egui::Context) {
@@ -208,16 +208,10 @@ fn draw_status(app: &mut BridgeApp, ui: &mut egui::Ui) {
 
 fn draw_tools(app: &mut BridgeApp, ui: &mut egui::Ui) {
     ui.heading("工具权限");
-    ui.label(RichText::new("选择模型看到的工具 Schema，并统一经过策略、审批与审计。").weak());
+    ui.label(RichText::new("向模型暴露 Codex 兼容的工具 Schema，并统一经过策略、审批与审计。").weak());
     ui.group(|ui| {
         ui.label(RichText::new("工具 Schema").strong());
-        let before=app.policy.tool_schema;
-        egui::ComboBox::from_id_salt("tool-schema-profile").selected_text(match app.policy.tool_schema{ToolSchemaProfile::Bridge=>"Local Tool Bridge",ToolSchemaProfile::Codex=>"Codex Rust Compatible"}).show_ui(ui,|ui|{
-            ui.selectable_value(&mut app.policy.tool_schema,ToolSchemaProfile::Bridge,"Local Tool Bridge");
-            ui.selectable_value(&mut app.policy.tool_schema,ToolSchemaProfile::Codex,"Codex Rust Compatible");
-        });
-        if app.policy.tool_schema!=before { app.dispatcher.registry().set_schema_profile(match app.policy.tool_schema{ToolSchemaProfile::Bridge=>ltb_core::tools::ToolSchemaProfile::Bridge,ToolSchemaProfile::Codex=>ltb_core::tools::ToolSchemaProfile::Codex}); app.dirty=true; }
-        ui.label(match app.policy.tool_schema{ToolSchemaProfile::Bridge=>"使用项目原生的 fs.* / shell.* / http.* 工具。",ToolSchemaProfile::Codex=>"只向模型暴露 Codex 风格的 exec / unified_exec / apply_patch / list_dir / read_file；不包含 write_stdin。"});
+        ui.label("Codex Rust Compatible —— 只向模型暴露 exec / unified_exec / apply_patch / list_dir / read_file；不包含 write_stdin。");
     });
     ui.add_space(8.0);
     ui.horizontal(|ui| {

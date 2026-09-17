@@ -1,9 +1,9 @@
 /**
- * The built-in tool catalogue.
+ * The built-in tool catalogue — the Codex-compatible surface.
  *
  * This table is authoritative: the Rust host implements exactly these names,
  * and the MCP endpoint advertises exactly these names. Adding a tool means
- * adding an entry here *and* a handler in `crates/host/src/tools/`.
+ * adding an entry here *and* a handler in `crates/core/src/tools/codex.rs`.
  *
  * Security posture, stated once so every tool inherits it:
  * - Paths are resolved and canonicalised by the host before any policy check,
@@ -14,12 +14,12 @@
 
 import type { ToolDescriptor } from "./tools.js";
 
-export const FS_READ_FILE: ToolDescriptor = {
-  name: "fs.read_file",
-  summary: "Read a UTF-8 text file from disk",
+export const CODEX_READ_FILE: ToolDescriptor = {
+  name: "read_file",
+  summary: "Read a UTF-8 text file from disk (Codex schema)",
   description:
-    "Reads a file and returns its contents. Use `offset` and `limit` for large files. Binary files are refused rather than mangled.",
-  category: "fs",
+    "Reads a file using the bridge's existing filesystem sandbox and encoding support. By default output is prefixed with line numbers, which also normalises line endings; pass `lineNumbers: false` to get the file byte-for-byte. Binary files are refused rather than mangled.",
+  category: "codex-filesystem",
   mutating: false,
   defaultEffect: "ask",
   latencyHint: "instant",
@@ -29,41 +29,25 @@ export const FS_READ_FILE: ToolDescriptor = {
       path: { type: "string", description: "Absolute path to the file" },
       offset: { type: "integer", description: "1-based first line to return", minimum: 1 },
       limit: { type: "integer", description: "Maximum number of lines", minimum: 1, maximum: 5000 },
+      lineNumbers: {
+        type: "boolean",
+        description: "Prefix each line with its number (normalises line endings)",
+        default: true,
+      },
       encoding: { type: "string", enum: ["utf-8", "utf-16le", "gbk"], default: "utf-8" },
     },
     required: ["path"],
   },
 };
 
-export const FS_WRITE_FILE: ToolDescriptor = {
-  name: "fs.write_file",
-  summary: "Create or overwrite a text file",
+export const CODEX_LIST_DIR: ToolDescriptor = {
+  name: "list_dir",
+  summary: "List directory entries (Codex schema)",
   description:
-    "Writes text to a file, creating parent directories when needed. Always requires explicit human approval because it destroys existing content unless `mode` is `append`.",
-  category: "fs",
-  mutating: true,
-  defaultEffect: "ask",
-  latencyHint: "instant",
-  inputSchema: {
-    type: "object",
-    properties: {
-      path: { type: "string", description: "Absolute path to write" },
-      content: { type: "string", description: "Full file contents" },
-      mode: { type: "string", enum: ["overwrite", "append", "create"], default: "overwrite" },
-      createDirs: { type: "boolean", description: "Create missing parent directories", default: true },
-    },
-    required: ["path", "content"],
-  },
-};
-
-export const FS_LIST_DIR: ToolDescriptor = {
-  name: "fs.list_dir",
-  summary: "List the entries of a directory",
-  description:
-    "Returns names, sizes, and modification times for a directory. Non-recursive by default; set `recursive` with a `glob` to walk a tree.",
-  category: "fs",
+    "Lists directory entries using the bridge's existing filesystem sandbox. Non-recursive by default; set `recursive` with a `glob` to walk a tree.",
+  category: "codex-filesystem",
   mutating: false,
-  defaultEffect: "ask",
+  defaultEffect: "allow",
   latencyHint: "instant",
   inputSchema: {
     type: "object",
@@ -78,82 +62,75 @@ export const FS_LIST_DIR: ToolDescriptor = {
   },
 };
 
-export const FS_SEARCH: ToolDescriptor = {
-  name: "fs.search",
-  summary: "Search file contents with a regular expression",
+export const CODEX_EXEC: ToolDescriptor = {
+  name: "exec",
+  summary: "Run a command using the configured shell",
   description:
-    "Recursively searches text files under a directory and returns matching lines with their line numbers. Skips binary files, `.git`, and `node_modules` by default.",
-  category: "fs",
-  mutating: false,
-  defaultEffect: "ask",
-  latencyHint: "slow",
-  inputSchema: {
-    type: "object",
-    properties: {
-      path: { type: "string", description: "Absolute directory to search" },
-      pattern: { type: "string", description: "Rust regex syntax" },
-      glob: { type: "string", description: "Restrict to matching files, e.g. `*.rs`" },
-      ignoreCase: { type: "boolean", default: false },
-      maxResults: { type: "integer", minimum: 1, maximum: 1000, default: 100 },
-      contextLines: { type: "integer", minimum: 0, maximum: 10, default: 0 },
-    },
-    required: ["path", "pattern"],
-  },
-};
-
-export const SHELL_EXEC: ToolDescriptor = {
-  name: "shell.exec",
-  summary: "Run a shell command and capture its output",
-  description:
-    "Executes a command in the user's default shell and returns stdout, stderr, and the exit code. The host enforces a timeout and a command denylist; every invocation requires approval unless the user has allowlisted the exact command.",
-  category: "shell",
+    "Codex-compatible command execution schema. The bridge keeps shell selection under its GUI policy; the optional shell field is accepted for schema compatibility but cannot override the configured shell.",
+  category: "codex-execution",
   mutating: true,
   defaultEffect: "ask",
   latencyHint: "slow",
   inputSchema: {
     type: "object",
     properties: {
-      command: { type: "string", description: "Command line to execute" },
+      cmd: { type: "string", description: "Command line to execute" },
+      shell: {
+        type: "string",
+        description: "Compatibility field; shell is selected by the bridge policy",
+      },
+      login: { type: "boolean", default: true },
+      tty: { type: "boolean", default: false },
+      yield_time_ms: { type: "integer", minimum: 0, maximum: 600000, default: 10000 },
+      timeout_ms: { type: "integer", minimum: 100, maximum: 600000 },
+      max_output_tokens: { type: "integer", minimum: 1, maximum: 100000 },
       cwd: { type: "string", description: "Absolute working directory" },
-      timeoutMs: { type: "integer", minimum: 100, maximum: 600000, default: 60000 },
-      stdin: { type: "string", description: "Text piped to the process's stdin" },
       env: { type: "object", description: "Extra environment variables" },
     },
-    required: ["command"],
+    required: ["cmd"],
   },
 };
 
-export const HTTP_REQUEST: ToolDescriptor = {
-  name: "http.request",
-  summary: "Make an HTTP request to an allowlisted host",
+export const CODEX_UNIFIED_EXEC: ToolDescriptor = {
+  name: "unified_exec",
+  summary: "Run a command through the unified exec schema",
   description:
-    "Performs an HTTP request and returns status, headers, and body. Only hosts on the user's allowlist are reachable; loopback and private ranges are blocked by default to prevent the model from reaching internal services.",
-  category: "http",
+    "Codex unified-exec compatible schema backed by the bridge's existing shell executor and policy controls.",
+  category: "codex-execution",
   mutating: true,
   defaultEffect: "ask",
   latencyHint: "slow",
+  inputSchema: CODEX_EXEC.inputSchema,
+};
+
+export const CODEX_APPLY_PATCH: ToolDescriptor = {
+  name: "apply_patch",
+  summary: "Create, update, delete, or move files with a patch",
+  description:
+    "Applies the Codex file-oriented patch format directly to the sandboxed filesystem. Supported operations are Add File, Delete File, Update File, and Update File with Move to.",
+  category: "codex-filesystem",
+  mutating: true,
+  defaultEffect: "ask",
+  latencyHint: "instant",
   inputSchema: {
     type: "object",
     properties: {
-      url: { type: "string", description: "Absolute http(s) URL" },
-      method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"], default: "GET" },
-      headers: { type: "object", description: "Request headers" },
-      body: { type: "string", description: "Request body for non-GET methods" },
-      timeoutMs: { type: "integer", minimum: 100, maximum: 120000, default: 30000 },
-      maxBytes: { type: "integer", minimum: 1, maximum: 10485760, default: 1048576 },
+      patch: {
+        type: "string",
+        description: "A Codex apply_patch document beginning with *** Begin Patch and ending with *** End Patch",
+      },
     },
-    required: ["url"],
+    required: ["patch"],
   },
 };
 
-/** Every tool the host ships with, in prompt-rendering order. */
+/** Every tool the host exposes to clients, in prompt-rendering order. */
 export const BUILTIN_TOOLS: readonly ToolDescriptor[] = [
-  FS_READ_FILE,
-  FS_LIST_DIR,
-  FS_SEARCH,
-  FS_WRITE_FILE,
-  SHELL_EXEC,
-  HTTP_REQUEST,
+  CODEX_READ_FILE,
+  CODEX_LIST_DIR,
+  CODEX_EXEC,
+  CODEX_UNIFIED_EXEC,
+  CODEX_APPLY_PATCH,
 ];
 
 /** Fast lookup by name. */
@@ -168,10 +145,9 @@ export const TOOLS_BY_NAME: ReadonlyMap<string, ToolDescriptor> = new Map(
  * The user is expected to widen this in the GUI once they trust a directory.
  */
 export const DEFAULT_POLICY_RULES = [
-  { tool: "fs.read_file", effect: "ask" as const },
-  { tool: "fs.list_dir", effect: "allow" as const },
-  { tool: "fs.search", effect: "allow" as const },
-  { tool: "fs.write_file", effect: "ask" as const },
-  { tool: "shell.exec", effect: "ask" as const },
-  { tool: "http.request", effect: "ask" as const },
+  { tool: "read_file", effect: "ask" as const },
+  { tool: "list_dir", effect: "allow" as const },
+  { tool: "exec", effect: "ask" as const },
+  { tool: "unified_exec", effect: "ask" as const },
+  { tool: "apply_patch", effect: "ask" as const },
 ];

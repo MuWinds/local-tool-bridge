@@ -98,7 +98,7 @@ async fn handshake_reports_the_capabilities() {
             .as_array()
             .unwrap()
             .len(),
-        6
+        5
     );
     // No approver is installed, so the host must not claim it can ask a human.
     assert_eq!(result["capabilities"]["interactiveApproval"], false);

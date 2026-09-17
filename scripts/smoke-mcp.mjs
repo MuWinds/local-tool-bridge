@@ -40,9 +40,9 @@ writeFileSync(
     {
       revision: 0,
       rules: [
-        { tool: "fs.list_dir", effect: "allow" },
-        { tool: "fs.read_file", effect: "allow" },
-        { tool: "shell.exec", effect: "allow" },
+        { tool: "list_dir", effect: "allow" },
+        { tool: "read_file", effect: "allow" },
+        { tool: "exec", effect: "allow" },
       ],
       roots: [workspace],
       allowedHosts: [],
@@ -176,18 +176,18 @@ try {
   const list = await mcp("tools/list", {}, { secret, sessionId });
   const tools = list.body.result?.tools ?? [];
   const names = tools.map((tool) => tool.name);
-  check("tools/list returns six tools", tools.length === 6, JSON.stringify(list.body));
-  check("tool names are MCP-safe (no dots)", names.includes("fs_read_file") && names.every((n) => !n.includes(".")));
+  check("tools/list returns five tools", tools.length === 5, JSON.stringify(list.body));
+  check("tool names are MCP-safe (no dots)", names.includes("read_file") && names.every((n) => !n.includes(".")));
   check("every tool declares an object schema", tools.every((tool) => tool.inputSchema?.type === "object"));
 
   // 6. A real read-only tool call.
   const dir = await mcp(
     "tools/call",
-    { name: "fs_list_dir", arguments: { path: workspace } },
+    { name: "list_dir", arguments: { path: workspace } },
     { secret, sessionId },
   );
   check(
-    "fs_list_dir returns the workspace listing",
+    "list_dir returns the workspace listing",
     (dir.body.result?.content?.[0]?.text ?? "").includes("note.txt") && dir.body.result?.isError === false,
     JSON.stringify(dir.body),
   );
@@ -195,11 +195,11 @@ try {
   // 7. File content round-trips.
   const read = await mcp(
     "tools/call",
-    { name: "fs_read_file", arguments: { path: join(workspace, "note.txt") } },
+    { name: "read_file", arguments: { path: join(workspace, "note.txt") } },
     { secret, sessionId },
   );
   check(
-    "fs_read_file returns the file body",
+    "read_file returns the file body",
     (read.body.result?.content?.[0]?.text ?? "").includes("beta"),
     JSON.stringify(read.body),
   );
@@ -249,7 +249,7 @@ try {
   //    sees the refusal and adapts.
   const escape = await mcp(
     "tools/call",
-    { name: "fs_read_file", arguments: { path: policyPath } },
+    { name: "read_file", arguments: { path: policyPath } },
     { secret, sessionId },
   );
   check(
@@ -260,7 +260,7 @@ try {
 
   // 10. Requests without a session are served statelessly (newer MCP clients).
   const stateless = await mcp("tools/list", {}, { secret });
-  check("tools/list works without a session id", (stateless.body.result?.tools ?? []).length === 6);
+  check("tools/list works without a session id", (stateless.body.result?.tools ?? []).length === 5);
 
   // 11. A stale session id is reported, not silently served.
   const stale = await mcp("tools/list", {}, { secret, sessionId: "tunnel_does_not_exist" });

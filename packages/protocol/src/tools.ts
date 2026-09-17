@@ -43,7 +43,7 @@ export type PolicyEffect = "allow" | "ask" | "deny";
  * an exact `tool` match beats a `tool` prefix glob, which beats the defaults.
  */
 export interface PolicyRule {
-  /** Tool name or glob such as `fs.*` or `shell.exec`. */
+  /** Tool name or glob such as `read_file` or `exec`. */
   tool: string;
   effect: PolicyEffect;
   /** Optional extra predicate, e.g. only paths under a directory. */
@@ -60,14 +60,14 @@ export interface PolicyPredicate {
 }
 
 export interface ToolDescriptor {
-  /** Stable, dotted identifier, e.g. `fs.read_file`. */
+  /** Stable identifier, e.g. `read_file`. */
   name: string;
   /** One-line summary shown to the model and in the GUI. */
   summary: string;
   /** Longer guidance, injected into the system prompt. */
   description: string;
   /** Grouping used by the GUI's tool list. */
-  category: "fs" | "shell" | "http" | "meta";
+  category: "fs" | "shell" | "http" | "meta" | "codex-filesystem" | "codex-execution";
   inputSchema: ObjectSchema;
   /** Whether the call mutates state outside the host process. */
   mutating: boolean;
