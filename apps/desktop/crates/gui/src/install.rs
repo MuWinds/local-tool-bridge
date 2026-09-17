@@ -19,8 +19,7 @@ use std::path::{Path, PathBuf};
 
 use ltb_core::Result;
 
-/// The host name the extension connects to. Must match
-/// `NATIVE_HOST_NAME` in `apps/extension/src/background/transport.ts`.
+/// The host name clients connect to over Native Messaging.
 pub const HOST_NAME: &str = "com.local_tool_bridge.host";
 
 /// Where the manifest lives on this platform.

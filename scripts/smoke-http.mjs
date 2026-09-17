@@ -3,8 +3,7 @@
  * End-to-end smoke test for the loopback HTTP transport.
  *
  * Exercises the real `ltb-host serve` binary over real HTTP, covering the
- * properties the extension depends on: the health probe, secret enforcement,
- * origin rejection, and a genuine tool call.
+ * health probe, secret enforcement, origin rejection, and a genuine tool call.
  *
  * Usage: node scripts/smoke-http.mjs [port]
  */
@@ -106,7 +105,7 @@ function check(name, condition, detail = "") {
 }
 
 /** Issues one JSON-RPC call over HTTP. */
-async function rpc(method, params, { secret, origin = "chrome-extension://test" } = {}) {
+async function rpc(method, params, { secret, origin } = {}) {
   const response = await fetch(`http://127.0.0.1:${PORT}/rpc`, {
     method: "POST",
     headers: {
@@ -194,7 +193,7 @@ try {
       name: "fs.read_file",
       arguments: { path: join(workspace, "note.txt") },
       callId: "http-1",
-      origin: "https://chat.deepseek.com",
+      origin: "local-test",
     },
     { secret },
   );
@@ -211,7 +210,7 @@ try {
       name: "fs.read_file",
       arguments: { path: policyPath },
       callId: "http-2",
-      origin: "https://chat.deepseek.com",
+      origin: "local-test",
     },
     { secret },
   );
@@ -224,7 +223,7 @@ try {
   // 10. A CORS preflight is answered.
   const preflight = await fetch(`http://127.0.0.1:${PORT}/rpc`, {
     method: "OPTIONS",
-    headers: { origin: "chrome-extension://test" },
+    headers: { origin: "https://local.test" },
   });
   check("an OPTIONS preflight is answered", preflight.status === 204);
 } catch (error) {

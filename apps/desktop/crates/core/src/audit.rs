@@ -364,7 +364,7 @@ mod tests {
                 matched_rule: None,
                 reason: None,
                 duration_ms: None,
-                origin: "https://chat.deepseek.com".into(),
+                origin: "local-test".into(),
                 conversation_id: None,
             })
             .await;

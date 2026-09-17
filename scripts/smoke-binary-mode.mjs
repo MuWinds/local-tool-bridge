@@ -184,7 +184,7 @@ try {
       name: "fs.read_file",
       arguments: { path, limit: 5000 },
       callId: `binmode-${testCase.name}`,
-      origin: "https://chat.deepseek.com",
+      origin: "local-test",
     });
 
     if (reply.error) {
@@ -227,7 +227,7 @@ try {
       name: "fs.read_file",
       arguments: { path, limit: 5000, lineNumbers: false },
       callId: `binmode-raw-${testCase.name}`,
-      origin: "https://chat.deepseek.com",
+      origin: "local-test",
     });
 
     if (reply.error) {

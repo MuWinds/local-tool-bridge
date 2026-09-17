@@ -1,20 +1,17 @@
 //! The loopback WebSocket transport.
 //!
-//! The extension's service worker connects here because it is the simplest
-//! channel to develop against. Three properties make it safe enough to expose:
+//! Local process clients connect here (e.g. the MCP tunnel). Three properties
+//! make it safe enough to expose:
 //!
 //! 1. **Bound to `127.0.0.1` only** — never `0.0.0.0`, so the socket is not
 //!    reachable from the LAN.
 //! 2. **Shared-secret handshake** — the first message must be a `bridge.hello`
 //!    carrying the token printed in the GUI. A random web page that discovers
 //!    the port cannot call a tool without it.
-//! 3. **Origin check** — the `Origin` header must be a DeepSeek page or an
-//!    extension origin. This is defence in depth, not the primary boundary:
-//!    any local process can forge an Origin header, which is exactly why the
-//!    secret exists.
-//!
-//! Native messaging is the stricter transport (Chrome enforces the extension
-//! allowlist); this one is the convenient one. Both feed the same dispatcher.
+//! 3. **Origin check** — any browser `Origin` is rejected; only clients that
+//!    send no Origin header (local processes) are accepted. This is defence in
+//!    depth, not the primary boundary: any local process can forge a request,
+//!    which is exactly why the secret exists.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -28,32 +25,12 @@ use tokio_tungstenite::tungstenite::Message;
 use ltb_core::dispatch::{Dispatcher, PeerTrust};
 use ltb_core::rpc::{self, Incoming};
 
-/// Origins permitted to open a WebSocket.
-const ALLOWED_ORIGIN_SUFFIXES: &[&str] = &[
-    "chat.deepseek.com",
-    // Chrome extension service workers send an origin of the form
-    // `chrome-extension://<id>`; any id is accepted here because the shared
-    // secret, not the origin, is the actual gate.
-    "chrome-extension://",
-    "moz-extension://",
-];
-
 /// Returns `true` when an `Origin` header value is acceptable.
+///
+/// Local process clients send no Origin header; any browser `Origin` is
+/// rejected because the bridge no longer serves browser origins.
 fn origin_allowed(origin: &str) -> bool {
-    if origin.is_empty() {
-        return false;
-    }
-    ALLOWED_ORIGIN_SUFFIXES.iter().any(|suffix| {
-        if suffix.ends_with("://") {
-            origin.starts_with(suffix)
-        } else {
-            // Match the host exactly or as a subdomain, so `evil-chat.deepseek.com`
-            // is rejected while `chat.deepseek.com` is accepted.
-            origin == format!("https://{suffix}")
-                || origin.ends_with(&format!(".{suffix}"))
-                || origin == format!("http://{suffix}")
-        }
-    })
+    origin.is_empty()
 }
 
 /// Runs the WebSocket server until the process ends.
@@ -235,30 +212,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_deepseek_and_extension_origins() {
-        assert!(origin_allowed("https://chat.deepseek.com"));
-        assert!(origin_allowed("chrome-extension://abcdefghijklmnop"));
-        assert!(origin_allowed("moz-extension://abc"));
+    fn accepts_a_missing_origin() {
+        // Local process clients send no Origin header; the shared secret is
+        // verified by the `bridge.hello` handshake.
+        assert!(origin_allowed(""));
     }
 
     #[test]
-    fn rejects_a_lookalike_host() {
-        // The suffix check must not be fooled by a domain that merely ends with
-        // the allowed host.
-        assert!(!origin_allowed(
-            "https://evil-chat.deepseek.com.attacker.net"
-        ));
+    fn rejects_every_browser_origin() {
+        // The bridge no longer serves browser origins (DeepSeek page or
+        // extension), so any Origin header is refused.
+        assert!(!origin_allowed("https://chat.deepseek.com"));
+        assert!(!origin_allowed("chrome-extension://abcdefghijklmnop"));
+        assert!(!origin_allowed("moz-extension://abc"));
+        assert!(!origin_allowed("https://evil-chat.deepseek.com.attacker.net"));
         assert!(!origin_allowed("https://notdeepseek.com"));
-    }
-
-    #[test]
-    fn rejects_an_empty_or_unrelated_origin() {
-        assert!(!origin_allowed(""));
         assert!(!origin_allowed("https://example.com"));
-    }
-
-    #[test]
-    fn accepts_a_deepseek_subdomain() {
-        assert!(origin_allowed("https://www.chat.deepseek.com"));
     }
 }

@@ -170,7 +170,7 @@ try {
     name: "fs.read_file",
     arguments: { path: join(workspace, "hello.txt") },
     callId: "smoke-read",
-    origin: "https://chat.deepseek.com",
+    origin: "local-test",
   });
   const readText = read.result?.content?.[0]?.text ?? "";
   check("fs.read_file returns the file body", readText.includes("line two"));
@@ -181,7 +181,7 @@ try {
     name: "fs.list_dir",
     arguments: { path: workspace },
     callId: "smoke-list",
-    origin: "https://chat.deepseek.com",
+    origin: "local-test",
   });
   check("fs.list_dir returns entries", (listing.result?.content?.[0]?.text ?? "").includes("hello.txt"));
 
@@ -190,7 +190,7 @@ try {
     name: "fs.list_dir",
     arguments: { path: workspace, nonsense: true },
     callId: "smoke-bad-arg",
-    origin: "https://chat.deepseek.com",
+    origin: "local-test",
   });
   check("unknown arguments are rejected", badArg.error !== undefined, JSON.stringify(badArg.result));
 
@@ -199,7 +199,7 @@ try {
     name: "fs.read_file",
     arguments: { path: join(scratch, "policy.json") },
     callId: "smoke-escape",
-    origin: "https://chat.deepseek.com",
+    origin: "local-test",
   });
   check(
     "a path outside the sandbox root is refused",
@@ -212,7 +212,7 @@ try {
     name: "fs.read_file",
     arguments: { path: join(workspace, "server.pem") },
     callId: "smoke-denylist",
-    origin: "https://chat.deepseek.com",
+    origin: "local-test",
   });
   check(
     "the denylist refuses .pem files inside an allowed root",
@@ -225,7 +225,7 @@ try {
     name: "shell.exec",
     arguments: { command: "echo bridge-ok", cwd: workspace },
     callId: "smoke-shell",
-    origin: "https://chat.deepseek.com",
+    origin: "local-test",
   });
   check("shell.exec captures stdout", (shell.result?.content?.[0]?.text ?? "").includes("bridge-ok"));
 
@@ -234,7 +234,7 @@ try {
     name: "shell.exec",
     arguments: { command: "rm -rf /" },
     callId: "smoke-destructive",
-    origin: "https://chat.deepseek.com",
+    origin: "local-test",
   });
   check(
     "the destructive denylist refuses `rm -rf /` despite an allow rule",
@@ -247,7 +247,7 @@ try {
     name: "http.request",
     arguments: { url: "https://not-allowlisted.example.org/" },
     callId: "smoke-http",
-    origin: "https://chat.deepseek.com",
+    origin: "local-test",
   });
   check(
     "an unlisted host is refused",

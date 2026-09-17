@@ -1,5 +1,5 @@
 /**
- * `@dlb/protocol` — the wire contract shared by the Chrome extension and the
+ * `@dlb/protocol` — the wire contract shared between the MCP endpoint and the
  * local Rust host.
  *
  * Everything here is transport-agnostic. The same `JsonRpcMessage` envelope is
@@ -10,8 +10,4 @@
 export * from "./jsonrpc.js";
 export * from "./tools.js";
 export * from "./catalog.js";
-export * from "./prompt.js";
 export * from "./framing.js";
-export * from "./stream.js";
-export * from "./scrub.js";
-export * from "./present.js";

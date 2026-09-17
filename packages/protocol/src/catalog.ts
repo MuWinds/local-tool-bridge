@@ -2,7 +2,7 @@
  * The built-in tool catalogue.
  *
  * This table is authoritative: the Rust host implements exactly these names,
- * and the prompt builder advertises exactly these names. Adding a tool means
+ * and the MCP endpoint advertises exactly these names. Adding a tool means
  * adding an entry here *and* a handler in `crates/host/src/tools/`.
  *
  * Security posture, stated once so every tool inherits it:

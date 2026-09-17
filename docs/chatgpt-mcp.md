@@ -4,9 +4,8 @@
 
 连接到本地运行的 bridge MCP 端点。ChatGPT 侧发出 MCP 调用 → OpenAI 隧道服务 →
 
-你本机的 `tunnel-client` 守护进程 → `ltb-host` 的 `/mcp` 端点 → 与 DeepSeek
-
-网页扩展**完全同一套**工具、策略、审批与审计。
+你本机的 `tunnel-client` 守护进程 → `ltb-host` 的 `/mcp` 端点 → 本地工具、
+策略、审批与审计。
 
 
 
@@ -271,7 +270,7 @@ curl -fsS "http://127.0.0.1:8080/health?details=true"
 
 > 读取 C:\Users\me\project\README.md 并总结。
 
-涉及「需确认」工具的调用，会像 DeepSeek 一样弹审批框。
+涉及「需确认」工具的调用，会弹出审批框。
 
 ## 6. 安全说明
 
@@ -279,7 +278,7 @@ curl -fsS "http://127.0.0.1:8080/health?details=true"
 
 * MCP 端点只绑定 `127.0.0.1`，不暴露到局域网。
 
-* `x-dlb-secret` 与 DeepSeek 扩展用的是同一个共享令牌；任何进程拿到它都能
+* `x-dlb-secret` 是 bridge 的共享令牌；任何进程拿到它都能
 
   驱动本机工具，请像对待密码一样保管（样例用 `file:` 引用避免明文落盘）。
 
@@ -306,11 +305,3 @@ curl -fsS "http://127.0.0.1:8080/health?details=true"
 | 调用被拒绝（`isError` 内容为拒绝原因）         | 这是 bridge 策略 / 审批在拦截：在控制面板批准、或为该工具 / 目录配置允许规则                                                                      |
 | 工具名找不到                           | MCP 名是下划线形式（`fs_read_file`）；旧 dotted 名（`fs.read_file`）也能调用                                                         |
 | 端口冲突                             | 手动 `serve-mcp` 默认 8789，若已开 `ltb-gui` 请改用 `--mcp-port` 换端口                                                          |
-
-## 8. 与 DeepSeek 网页扩展的关系
-
-两者共用同一个 `ltb-host` 与 `Dispatcher`：工具注册表、策略引擎、审批器、
-
-审计日志完全一致，只是入口不同（扩展走 HTTP/WebSocket/Native Messaging，
-
-ChatGPT 走 MCP）。可以同时开着 DeepSeek 扩展与 tunnel-client，互不干扰。

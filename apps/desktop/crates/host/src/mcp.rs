@@ -1,8 +1,8 @@
 //! The MCP (Model Context Protocol) transport.
 //!
 //! This endpoint speaks the MCP Streamable HTTP protocol so that ChatGPT,
-//! Codex, or any other MCP client can reach the *same* local tools the DeepSeek
-//! extension uses. The supported path into it is OpenAI's Secure MCP Tunnel
+//! Codex, or any other MCP client can reach the local tools. The supported
+//! path into it is OpenAI's Secure MCP Tunnel
 //! (`openai/tunnel-client`): the tunnel daemon runs locally, long-polls the
 //! OpenAI control plane for commands addressed to a tunnel, and forwards each
 //! one here as MCP JSON-RPC.

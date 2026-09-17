@@ -12,7 +12,7 @@ import type { JsonRpcId } from "./jsonrpc.js";
 /**
  * A deliberately small JSON Schema subset.
  *
- * The prompt builder renders this into prose for the model, and the Rust host
+ * The MCP endpoint renders this into JSON Schema for clients, and the Rust host
  * validates against the same shape. Keeping the subset tiny means the two
  * implementations cannot drift.
  */
@@ -100,7 +100,7 @@ export interface ToolCallParams {
   arguments: Record<string, unknown>;
   /** Correlation id minted by the extension, echoed into audit logs. */
   callId: string;
-  /** Page origin the call came from, e.g. `https://chat.deepseek.com`. */
+  /** Origin the call came from, e.g. `local-test` (audit only). */
   origin: string;
   /** Conversation id, when the extension can determine it. */
   conversationId?: string;

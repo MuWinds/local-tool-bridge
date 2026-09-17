@@ -141,7 +141,7 @@ async fn an_allowed_tool_executes_and_is_audited() {
             "name": "fs.list_dir",
             "arguments": { "path": workspace.path().display().to_string() },
             "callId": "c1",
-            "origin": "https://chat.deepseek.com"
+            "origin": "local-test"
         }),
     )
     .await;
@@ -180,7 +180,7 @@ async fn a_denied_tool_never_executes_but_is_still_audited() {
             "name": "fs.write_file",
             "arguments": { "path": target.display().to_string(), "content": "x" },
             "callId": "c2",
-            "origin": "https://chat.deepseek.com"
+            "origin": "local-test"
         }),
     )
     .await;
@@ -222,7 +222,7 @@ async fn an_ask_verdict_fails_closed_when_no_human_is_available() {
             "name": "fs.write_file",
             "arguments": { "path": target.display().to_string(), "content": "x" },
             "callId": "c3",
-            "origin": "https://chat.deepseek.com"
+            "origin": "local-test"
         }),
     )
     .await;
@@ -264,7 +264,7 @@ async fn an_approved_call_executes_and_records_approval() {
             "name": "fs.write_file",
             "arguments": { "path": target.display().to_string(), "content": "written" },
             "callId": "c4",
-            "origin": "https://chat.deepseek.com"
+            "origin": "local-test"
         }),
     )
     .await;
@@ -306,7 +306,7 @@ async fn a_rejected_call_does_not_execute() {
             "name": "fs.write_file",
             "arguments": { "path": target.display().to_string(), "content": "x" },
             "callId": "c5",
-            "origin": "https://chat.deepseek.com"
+            "origin": "local-test"
         }),
     )
     .await;

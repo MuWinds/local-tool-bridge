@@ -141,14 +141,12 @@ fn origin_of(request: &Request<Incoming>) -> Option<String> {
 }
 
 /// True when an origin may call this endpoint.
-fn origin_allowed(origin: &str) -> bool {
-    if origin.is_empty() {
-        return false;
-    }
-    origin.starts_with("chrome-extension://")
-        || origin.starts_with("moz-extension://")
-        || origin == "https://chat.deepseek.com"
-        || origin.ends_with(".deepseek.com")
+///
+/// The HTTP transport now serves local process clients only (e.g. the MCP
+/// tunnel); the shared secret is the gate. No browser `Origin` is permitted,
+/// so any request carrying one is rejected here.
+fn origin_allowed(_origin: &str) -> bool {
+    false
 }
 
 /// Handles one HTTP request.
@@ -207,10 +205,11 @@ async fn handle(
         ));
     }
 
-    // A browser sends `Origin`; an extension service worker calling a host in
-    // its `host_permissions` may not. Absence is therefore tolerated — the
-    // shared secret is the real gate, and a local process could forge an Origin
-    // regardless, so rejecting on it alone would be security theatre.
+    // A browser sends `Origin`; local process clients do not. Absence is
+    // therefore tolerated — the shared secret is the real gate, and a local
+    // process could forge an Origin regardless, so rejecting on it alone would
+    // be security theatre. Any request that does carry a browser Origin is
+    // rejected below, since the bridge no longer serves browser origins.
     if let Some(origin) = &origin {
         if !origin_allowed(origin) {
             tracing::warn!(%origin, %peer, "rejected an HTTP request from a disallowed origin");
@@ -326,17 +325,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_extension_and_deepseek_origins() {
-        assert!(origin_allowed("chrome-extension://abcdef"));
-        assert!(origin_allowed("https://chat.deepseek.com"));
-        assert!(origin_allowed("https://www.deepseek.com"));
-    }
-
-    #[test]
-    fn rejects_unrelated_origins() {
+    fn rejects_every_browser_origin() {
+        // The bridge no longer serves browser origins; local process clients
+        // send no Origin header and authenticate with the shared secret.
+        assert!(!origin_allowed("chrome-extension://abcdef"));
         assert!(!origin_allowed("https://evil.example.com"));
         assert!(!origin_allowed(""));
-        // A lookalike domain must not pass the suffix check.
         assert!(!origin_allowed("https://deepseek.com.attacker.net"));
     }
 }
