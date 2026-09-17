@@ -12,8 +12,6 @@ Thumbs.db
 .vite/
 .turbo/
 coverage/
-apps/desktop/src-tauri/target/
-apps/desktop/src-tauri/gen/
 dlb-chrome-profile/
 dlb-test-workspace/
 dlb-verify-profile/

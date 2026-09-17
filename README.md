@@ -64,17 +64,17 @@ Rust ≥ 1.77。
 ### 1. 构建
 
 ```bash
-cd apps/desktop && cargo build --release
+cd src && cargo build --release
 ```
 
-产物：`apps/desktop/target/release/ltb-gui`（控制面板）与 `ltb-host`（无界面宿主）。
+产物：`src/target/release/ltb-gui`（控制面板）与 `ltb-host`（无界面宿主）。
 
 ### 2. 启动本地程序
 
 直接运行控制面板（它内部会拉起 MCP 端点）：
 
 ```bash
-./apps/desktop/target/release/ltb-gui
+./src/target/release/ltb-gui
 ```
 
 或在无界面环境下只跑宿主：
@@ -112,8 +112,8 @@ ChatGPT Connector → OpenAI 隧道服务 → tunnel-client（本机）→ ltb-h
 
 启用方式（二选一）：
 
-- **控制面板**：`./apps/desktop/target/release/ltb-gui` 启动后自动提供 MCP 端点，「状态」页会显示 `MCP（ChatGPT）` 地址（通常 `http://127.0.0.1:8790/mcp`），审批弹窗随之可用。
-- **无界面宿主**：`./apps/desktop/target/release/ltb-host serve-mcp --mcp-port 8789`（默认 `--mcp-port 8789`）。
+- **控制面板**：`./src/target/release/ltb-gui` 启动后自动提供 MCP 端点，「状态」页会显示 `MCP（ChatGPT）` 地址（通常 `http://127.0.0.1:8790/mcp`），审批弹窗随之可用。
+- **无界面宿主**：`./src/target/release/ltb-host serve-mcp --mcp-port 8789`（默认 `--mcp-port 8789`）。
 
 随后在本机运行 `tunnel-client`，把 `MCP_SERVER_URL` 指到上述地址，并通过 `MCP_EXTRA_HEADERS` / `MCP_DISCOVERY_EXTRA_HEADERS` 携带 `x-dlb-secret`（宿主打印的共享令牌），再在 ChatGPT 设置里创建 Connector。完整步骤、配置样例与故障排查见 **[`docs/chatgpt-mcp.md`](docs/chatgpt-mcp.md)**（含 `docs/tunnel-client.chatgpt.yaml` 样例）。
 
@@ -147,7 +147,7 @@ local-tool-bridge/
 │   ├── chatgpt-mcp.md          # ChatGPT 接入（OpenAI Secure MCP Tunnel）完整指南
 │   ├── mcp-servers.md          # 外部 stdio MCP 服务器接入
 │   └── tunnel-client.chatgpt.yaml   # tunnel-client 配置样例
-├── apps/desktop/               # Rust 工作区
+├── src/                        # Rust 工作区
 │   └── crates/
 │       ├── core/               # 策略引擎、路径沙箱、工具、审计、调度
 │       ├── host/               # HTTP / WebSocket / MCP 传输
@@ -164,7 +164,7 @@ local-tool-bridge/
 
 ```bash
 # Rust：单元测试 + 调度器集成测试
-cd apps/desktop && cargo test
+cd src && cargo test
 
 # 端到端：驱动真实二进制，走真实线协议（需先 cargo build）
 node scripts/smoke-http.mjs          # 12 项：健康检查、令牌、Origin、真实调用
@@ -179,7 +179,7 @@ node scripts/smoke-mcp.mjs           # 28 项：MCP 握手、server/discover、�
 
 留在这里是因为它们说明了哪些地方最容易出错。
 
-**其一：控制面板的中文全是豆腐块。** `eframe` 的 `default_fonts` 只带 Ubuntu-Light 与 NotoEmoji，两者都不含任何 CJK 字形，于是界面里每一个汉字都渲染成 `□`。这个缺陷的形态很有迷惑性：令牌、`127.0.0.1`、`read_file` 这类 ASCII 全部正常，只有中文坏掉 —— 看起来像控件坏了，而不是字体缺字。修复方式是首帧之前挂上一份系统中文字体（`apps/desktop/crates/gui/src/fonts.rs`），并且**追加**到字体族末尾而不是替换：追加才能让英文沿用原本的排版度量，只对 Ubuntu 覆盖不到的字形回退。之所以用系统字体而不是内嵌，是因为内嵌一份 CJK 字体会让二进制膨胀 10–20 MB，对控制面板来说代价过高；找不到字体时程序照常启动，只是回到原来的样子。
+**其一：控制面板的中文全是豆腐块。** `eframe` 的 `default_fonts` 只带 Ubuntu-Light 与 NotoEmoji，两者都不含任何 CJK 字形，于是界面里每一个汉字都渲染成 `□`。这个缺陷的形态很有迷惑性：令牌、`127.0.0.1`、`read_file` 这类 ASCII 全部正常，只有中文坏掉 —— 看起来像控件坏了，而不是字体缺字。修复方式是首帧之前挂上一份系统中文字体（`src/crates/gui/src/fonts.rs`），并且**追加**到字体族末尾而不是替换：追加才能让英文沿用原本的排版度量，只对 Ubuntu 覆盖不到的字形回退。之所以用系统字体而不是内嵌，是因为内嵌一份 CJK 字体会让二进制膨胀 10–20 MB，对控制面板来说代价过高；找不到字体时程序照常启动，只是回到原来的样子。
 
 **其二：审批链路从未被接通。** `request_approval` 注册了一个等待审批结果的通道，却**从未调用 `Approver`**。结果是控制面板的授权弹窗永远不会出现，每个"需确认"的调用都会干等满 180 秒然后被拒绝。单元测试全绿 —— 因为没有任何一个测试真正走完过带审批的完整调用。加上集成测试后立刻暴露：三个测试各挂起 60 秒以上。修复后 15 个测试在 0.14 秒内跑完。
 

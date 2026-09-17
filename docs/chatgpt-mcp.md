@@ -58,7 +58,7 @@ OpenAI Secure MCP Tunnel 控制面  ── 长轮询 ──►  tunnel-client（
 
 
 ```
-./apps/desktop/target/release/ltb-gui
+./src/target/release/ltb-gui
 ```
 
 「状态」页会出现 `MCP（ChatGPT）` 一栏，地址形如 `http://127.0.0.1:8790/mcp`
@@ -72,7 +72,7 @@ OpenAI Secure MCP Tunnel 控制面  ── 长轮询 ──►  tunnel-client（
 
 
 ```
-./apps/desktop/target/release/ltb-host serve-mcp --mcp-port 8789
+./src/target/release/ltb-host serve-mcp --mcp-port 8789
 ```
 
 启动时会打印 `ltb-host MCP listening on http://127.0.0.1:8789/mcp` 和

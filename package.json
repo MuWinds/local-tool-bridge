@@ -4,6 +4,6 @@
   "private": true,
   "description": "Give ChatGPT / Codex the ability to call local tools, via an MCP endpoint bridged to a cross-platform Rust host.",
   "scripts": {
-    "test": "cd apps/desktop && cargo test"
+    "test": "cd src && cargo test"
   }
 }

@@ -18,7 +18,7 @@ import { join, resolve } from "node:path";
 const PORT = Number(process.argv[2] ?? 8910);
 const BINARY = resolve(
   import.meta.dirname,
-  "../apps/desktop/target/debug",
+  "../src/target/debug",
   process.platform === "win32" ? "ltb-host.exe" : "ltb-host",
 );
 
