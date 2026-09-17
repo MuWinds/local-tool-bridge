@@ -59,13 +59,11 @@ Origin 检查只用于廉价地挡掉明显无关的网页，且显式容忍缺�
 
 ### 环境要求
 
-Node ≥ 20、pnpm ≥ 10、Rust ≥ 1.77。
+Rust ≥ 1.77。
 
 ### 1. 构建
 
 ```bash
-pnpm install
-pnpm build:protocol          # 共享协议包
 cd apps/desktop && cargo build --release
 ```
 
@@ -149,7 +147,6 @@ local-tool-bridge/
 │   ├── chatgpt-mcp.md          # ChatGPT 接入（OpenAI Secure MCP Tunnel）完整指南
 │   ├── mcp-servers.md          # 外部 stdio MCP 服务器接入
 │   └── tunnel-client.chatgpt.yaml   # tunnel-client 配置样例
-├── packages/protocol/          # 共享协议：JSON-RPC、工具目录
 ├── apps/desktop/               # Rust 工作区
 │   └── crates/
 │       ├── core/               # 策略引擎、路径沙箱、工具、审计、调度
@@ -168,9 +165,6 @@ local-tool-bridge/
 ```bash
 # Rust：单元测试 + 调度器集成测试
 cd apps/desktop && cargo test
-
-# TypeScript：协议包类型检查
-pnpm build:protocol && pnpm --filter @dlb/protocol typecheck
 
 # 端到端：驱动真实二进制，走真实线协议（需先 cargo build）
 node scripts/smoke-http.mjs          # 12 项：健康检查、令牌、Origin、真实调用

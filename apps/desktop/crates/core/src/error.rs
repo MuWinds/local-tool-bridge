@@ -1,8 +1,7 @@
 //! Error types and JSON-RPC error codes.
 //!
-//! The numeric codes here are the contract with the extension: they are defined
-//! once in `packages/protocol/src/jsonrpc.ts` and mirrored verbatim, so the page
-//! can branch on a stable integer instead of parsing an English message.
+//! The numeric codes here are the wire contract: stable integers a client can
+//! branch on without parsing an English message.
 
 use serde::{Deserialize, Serialize};
 

@@ -3,21 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Give ChatGPT / Codex the ability to call local tools, via an MCP endpoint bridged to a cross-platform Rust host.",
-  "packageManager": "pnpm@10.17.0",
-  "engines": {
-    "node": ">=20"
-  },
   "scripts": {
-    "build:protocol": "pnpm --filter @dlb/protocol build",
-    "dev:desktop": "pnpm --filter @dlb/desktop dev",
-    "build:desktop": "pnpm --filter @dlb/desktop build",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm --filter @dlb/protocol typecheck && cd apps/desktop && cargo test"
-  },
-  "devDependencies": {
-    "typescript": "^5.6.3"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "test": "cd apps/desktop && cargo test"
   }
 }
