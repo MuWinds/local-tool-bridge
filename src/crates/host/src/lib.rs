@@ -14,6 +14,7 @@ pub mod direct_mcp;
 pub mod http;
 pub mod mcp;
 pub mod mcp_servers;
+pub mod oauth;
 pub mod tunnel;
 pub mod websocket;
 
@@ -173,4 +174,35 @@ pub async fn run_direct_mcp(
         Arc::new(mcp::McpAuth::bearer(bearer_token)),
     ));
     Ok(address)
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectMcpRunning {
+    pub address: SocketAddr,
+    pub mcp_path: String,
+}
+
+/// Starts Direct MCP using the persisted GUI configuration. This is the entry
+/// point for OAuth and secret capability-URL modes.
+pub async fn run_configured_direct_mcp(
+    config: &direct_mcp::DirectMcpConfig,
+    dispatcher: Arc<Dispatcher>,
+) -> Result<DirectMcpRunning> {
+    let runtime = direct_mcp::build_runtime(config)?;
+    let listener = mcp::bind_address(runtime.bind)
+        .await
+        .map_err(|error| ltb_core::BridgeError::from_io("Failed to bind Direct MCP", error))?;
+    let address = listener.local_addr().map_err(|error| {
+        ltb_core::BridgeError::from_io("Failed to read Direct MCP address", error)
+    })?;
+    let mcp_path = runtime.mcp_path.clone();
+    tokio::spawn(mcp::serve_at(
+        listener,
+        dispatcher,
+        Arc::new(runtime.auth),
+        runtime.mcp_path,
+        runtime.reveal_path_in_errors,
+        true,
+    ));
+    Ok(DirectMcpRunning { address, mcp_path })
 }

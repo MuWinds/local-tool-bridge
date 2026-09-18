@@ -4,7 +4,7 @@
 
 - **控制面板（ltb-gui）**：原生桌面窗口，启动即用。授权、策略、审计、接入 ChatGPT 都在这里完成。
 - **内置服务与隧道**：MCP / HTTP / WebSocket 端点与 ChatGPT 安全隧道全部内置，无需另装任何客户端程序。
-- **可选 Direct Remote MCP**：保留 Tunnel 默认路径，同时可为有公网入口的用户启动独立 Bearer 认证 MCP Listener，配合 Caddy 等反向代理直接提供 HTTPS。
+- **可选 Direct Remote MCP**：保留 Tunnel 默认路径；公网模式可选 Static Bearer、OAuth 2.1 + PKCE，或高熵 Secret Path（No Auth），并可配合 Caddy 提供 HTTPS。
 
 ---
 
@@ -123,7 +123,7 @@ cd src && cargo build --release
 - **路径沙箱**：模型只能访问你添加的工作目录，`..`、符号链接都绕不出去；`.ssh`、`.env`、密钥文件即使在工作目录里也读不到；
 - **命令黑名单**：`rm -rf`、磁盘格式化这类破坏性命令优先级最高，任何规则都放行不了；
 - **私网拦截**：默认禁止模型访问本机与局域网地址（防止它借机读取云服务器元数据等内部信息），重定向会逐跳重新校验；
-- **令牌保护**：默认本机服务只监听 `127.0.0.1`，每个请求都校验共享令牌（连接令牌）；可选 Direct Remote MCP 使用另一枚独立 Bearer Token，不会复用 Tunnel/本地桥接 secret。
+- **公网认证隔离**：默认本机服务只监听 `127.0.0.1`；Direct Remote MCP 与 Tunnel/本地 bridge secret 分离，可选独立 Bearer、OAuth 2.1 + PKCE，或把 256-bit Secret Path 本身作为 capability credential。
 
 ---
 
@@ -148,7 +148,7 @@ cd src && cargo build --release
 - macOS：`~/Library/Application Support/local-tool-bridge/`
 - Linux：`~/.config/local-tool-bridge/`
 
-包括连接令牌（`secret`）、策略（`policy.json`）、审计日志（`audit.jsonl`）、MCP 服务器配置（`mcp.json`）、隧道配置（`tunnel.json`）等。
+包括连接令牌（`secret`）、策略（`policy.json`）、审计日志（`audit.jsonl`）、MCP 服务器配置（`mcp.json`）、Direct MCP 配置与凭据（`direct-mcp*.json` / `direct-mcp-*`）、隧道配置（`tunnel.json`）等。
 
 ---
 

@@ -86,11 +86,21 @@ ChatGPT
 ## 可选：不用 Tunnel，直接使用公网 HTTPS MCP
 
 如果机器本身已有公网入口，你可以继续保留上面的 Tunnel，也可以启用独立的
-**Direct Remote MCP**。它默认关闭，使用与本地 bridge secret 不同的静态 Bearer
-Token，并建议只绑定 `127.0.0.1:8792`，再由 Caddy / nginx 提供公网 HTTPS。
+**Direct Remote MCP**。它默认关闭，并建议只绑定 `127.0.0.1:8792`，再由
+Caddy / nginx 提供公网 HTTPS。
 
-完整部署方式、Caddyfile 示例与安全注意事项见 [Direct Remote MCP 与 Caddy](direct-mcp.md)。
+Direct 模式现在支持三种认证方式：
 
-> Direct Remote MCP 不会改变 Secure MCP Tunnel：两条路径可以同时存在。客户端需要
-> 支持标准 `Authorization: Bearer <token>`（或在外层网关完成等价认证）；如果你的
-> ChatGPT 工作区当前只提供 Tunnel / OAuth 等认证选项，继续使用 Tunnel 即可。
+- Static Bearer：兼容原实现；
+- OAuth 2.1 + PKCE：适合 ChatGPT 的「用户自定义 OAuth 客户端」；
+- Secret Path / No Auth：使用 `/<256-bit 随机路径>/mcp` 作为 capability URL，在
+  ChatGPT 中选择 No Authentication。
+
+OAuth 模式支持 `mcp offline_access` scopes、refresh token、标准
+`.well-known` metadata，并会在浏览器展示授权确认页。Secret Path 模式无需
+Authorization header，但完整 URL 本身就是凭据，泄漏后应立即轮换。
+
+完整部署方式、ChatGPT 字段对应关系、Caddyfile 示例与安全注意事项见
+[Direct Remote MCP 与 Caddy](direct-mcp.md)。
+
+> Direct Remote MCP 不会改变 Secure MCP Tunnel：两条路径可以同时存在。

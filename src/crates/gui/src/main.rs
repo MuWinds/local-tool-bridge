@@ -131,26 +131,18 @@ fn main() -> eframe::Result<()> {
         }
 
         if direct_mcp_config.enabled {
-            match (
-                direct_mcp_config.socket_addr(),
-                ltb_host::direct_mcp::load_or_create_token(&direct_mcp_config),
-            ) {
-                (Ok(bind), Ok(token)) => {
-                    match ltb_host::run_direct_mcp(bind, dispatcher.clone(), token).await {
-                        Ok(address) => {
-                            direct_mcp_address = Some(address.to_string());
-                            tracing::info!(%address, "Direct Remote MCP transport listening");
-                        }
-                        Err(error) => {
-                            tracing::error!(%error, %bind, "failed to start Direct Remote MCP");
-                        }
-                    }
+            match ltb_host::run_configured_direct_mcp(&direct_mcp_config, dispatcher.clone()).await
+            {
+                Ok(running) => {
+                    direct_mcp_address =
+                        Some(format!("http://{}{}", running.address, running.mcp_path));
+                    tracing::info!(
+                        address = %running.address,
+                        "Direct Remote MCP transport listening"
+                    );
                 }
-                (Err(error), _) => {
-                    tracing::error!(%error, "invalid Direct Remote MCP bind address");
-                }
-                (_, Err(error)) => {
-                    tracing::error!(%error, "failed to load Direct Remote MCP bearer token");
+                Err(error) => {
+                    tracing::error!(%error, "failed to start Direct Remote MCP");
                 }
             }
         }

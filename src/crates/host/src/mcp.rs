@@ -84,47 +84,63 @@ const AUTHORIZATION_HEADER: &str = "authorization";
 const SESSION_HEADER: &str = "mcp-session-id";
 
 /// Authentication accepted by one MCP listener.
-///
-/// The loopback/Tunnel listener is constructed with only `bridge_secret`; the
-/// opt-in Direct Remote listener is constructed with only `bearer_token`.
-#[derive(Debug, Clone)]
-pub struct McpAuth {
-    bridge_secret: Option<String>,
-    bearer_token: Option<String>,
+#[derive(Clone)]
+pub enum McpAuth {
+    BridgeSecret(String),
+    StaticBearer(String),
+    None,
+    OAuth(Arc<crate::oauth::OAuthServer>),
 }
 
 impl McpAuth {
     pub fn bridge_secret(secret: String) -> Self {
-        Self {
-            bridge_secret: Some(secret),
-            bearer_token: None,
-        }
+        Self::BridgeSecret(secret)
     }
 
     pub fn bearer(token: String) -> Self {
-        Self {
-            bridge_secret: None,
-            bearer_token: Some(token),
-        }
+        Self::StaticBearer(token)
+    }
+
+    pub fn none() -> Self {
+        Self::None
+    }
+
+    pub fn oauth(server: Arc<crate::oauth::OAuthServer>) -> Self {
+        Self::OAuth(server)
     }
 
     fn accepts(&self, headers: &HeaderMap) -> bool {
-        let bridge_ok = self.bridge_secret.as_deref().is_some_and(|expected| {
-            headers
+        match self {
+            Self::BridgeSecret(expected) => headers
                 .get(SECRET_HEADER)
                 .and_then(|value| value.to_str().ok())
-                .is_some_and(|provided| constant_time_eq(provided, expected))
-        });
-
-        let bearer_ok = self.bearer_token.as_deref().is_some_and(|expected| {
-            bearer_token(headers).is_some_and(|provided| constant_time_eq(provided, expected))
-        });
-
-        bridge_ok || bearer_ok
+                .is_some_and(|provided| constant_time_eq(provided, expected)),
+            Self::StaticBearer(expected) => {
+                bearer_token(headers).is_some_and(|provided| constant_time_eq(provided, expected))
+            }
+            Self::None => true,
+            Self::OAuth(server) => {
+                bearer_token(headers).is_some_and(|token| server.validate_access_token(token))
+            }
+        }
     }
 
     fn delete_requires_auth(&self) -> bool {
-        self.bearer_token.is_some()
+        matches!(self, Self::StaticBearer(_) | Self::OAuth(_))
+    }
+
+    fn oauth_server(&self) -> Option<Arc<crate::oauth::OAuthServer>> {
+        match self {
+            Self::OAuth(server) => Some(server.clone()),
+            _ => None,
+        }
+    }
+
+    fn resource_metadata_url(&self) -> Option<String> {
+        match self {
+            Self::OAuth(server) => Some(server.resource_metadata_url()),
+            _ => None,
+        }
     }
 }
 
@@ -205,15 +221,52 @@ impl McpState {
     }
 }
 
-/// Runs the MCP server until the process exits.
+#[derive(Clone)]
+struct RequestContext {
+    dispatcher: Arc<Dispatcher>,
+    auth: Arc<McpAuth>,
+    state: Arc<McpState>,
+    mcp_path: Arc<String>,
+    reveal_path_in_errors: bool,
+    allow_get_probe: bool,
+    peer: SocketAddr,
+}
+
+/// Runs the default /mcp server until the process exits.
 pub async fn serve(
     listener: TcpListener,
     dispatcher: Arc<Dispatcher>,
     auth: Arc<McpAuth>,
 ) -> std::io::Result<()> {
+    serve_at(
+        listener,
+        dispatcher,
+        auth,
+        MCP_PATH.to_string(),
+        true,
+        false,
+    )
+    .await
+}
+
+/// Runs MCP on an explicit endpoint path. Capability-URL mode sets
+/// `reveal_path_in_errors` to false so probes and logs do not disclose the path.
+pub async fn serve_at(
+    listener: TcpListener,
+    dispatcher: Arc<Dispatcher>,
+    auth: Arc<McpAuth>,
+    mcp_path: String,
+    reveal_path_in_errors: bool,
+    allow_get_probe: bool,
+) -> std::io::Result<()> {
     let state = Arc::new(McpState::new());
     let address = listener.local_addr()?;
-    tracing::info!(%address, "MCP transport listening on http://{address}{MCP_PATH}");
+    if reveal_path_in_errors {
+        tracing::info!(%address, path = %mcp_path, "MCP transport listening");
+    } else {
+        tracing::info!(%address, "MCP capability-URL transport listening");
+    }
+    let mcp_path = Arc::new(mcp_path);
 
     loop {
         let (stream, peer) = match listener.accept().await {
@@ -224,16 +277,20 @@ pub async fn serve(
             }
         };
 
-        let dispatcher = dispatcher.clone();
-        let auth = auth.clone();
-        let state = state.clone();
+        let context = RequestContext {
+            dispatcher: dispatcher.clone(),
+            auth: auth.clone(),
+            state: state.clone(),
+            mcp_path: mcp_path.clone(),
+            reveal_path_in_errors,
+            allow_get_probe,
+            peer,
+        };
 
         tokio::spawn(async move {
             let service = service_fn(move |request| {
-                let dispatcher = dispatcher.clone();
-                let auth = auth.clone();
-                let state = state.clone();
-                async move { handle(request, dispatcher, auth, state, peer).await }
+                let context = context.clone();
+                async move { handle(request, context).await }
             });
 
             if let Err(error) = hyper::server::conn::http1::Builder::new()
@@ -257,6 +314,33 @@ fn json_response(status: StatusCode, body: String) -> Response<Full<Bytes>> {
         .unwrap_or_else(|_| Response::new(Full::new(Bytes::from("{}"))))
 }
 
+fn unauthorized_response(auth: &McpAuth, body: String) -> Response<Full<Bytes>> {
+    let mut builder = Response::builder()
+        .status(StatusCode::UNAUTHORIZED)
+        .header("content-type", "application/json; charset=utf-8")
+        .header("cache-control", "no-store")
+        .header("access-control-allow-origin", "*");
+    if let Some(metadata) = auth.resource_metadata_url() {
+        builder = builder.header(
+            "www-authenticate",
+            format!(r#"Bearer resource_metadata="{metadata}""#),
+        );
+    }
+    builder
+        .body(Full::new(Bytes::from(body)))
+        .unwrap_or_else(|_| Response::new(Full::new(Bytes::from("{}"))))
+}
+
+fn sse_probe_response() -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/event-stream")
+        .header("cache-control", "no-store")
+        .header("x-accel-buffering", "no")
+        .body(Full::new(Bytes::from_static(b": ltb-mcp-ready\n\n")))
+        .unwrap_or_else(|_| Response::new(Full::new(Bytes::new())))
+}
+
 /// A JSON-RPC error object in the MCP shape.
 fn rpc_error(code: i64, message: impl Into<String>) -> Value {
     json!({ "jsonrpc": "2.0", "id": null, "error": { "code": code, "message": message.into() } })
@@ -273,11 +357,17 @@ fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
 /// Handles one HTTP request.
 async fn handle(
     request: Request<Incoming>,
-    dispatcher: Arc<Dispatcher>,
-    auth: Arc<McpAuth>,
-    state: Arc<McpState>,
-    peer: SocketAddr,
+    context: RequestContext,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
+    let RequestContext {
+        dispatcher,
+        auth,
+        state,
+        mcp_path,
+        reveal_path_in_errors,
+        allow_get_probe,
+        peer,
+    } = context;
     // Preflight, answered before the origin/secret checks so a browser client
     // can complete the handshake.
     if request.method() == Method::OPTIONS {
@@ -303,15 +393,38 @@ async fn handle(
         return Ok(json_response(StatusCode::OK, body));
     }
 
-    if request.uri().path() != MCP_PATH {
+    if let Some(oauth) = auth.oauth_server() {
+        if oauth.handles_path(request.uri().path()) {
+            return Ok(oauth.handle(request).await);
+        }
+    }
+
+    if request.uri().path() != mcp_path.as_str() {
+        let message = if reveal_path_in_errors {
+            format!("Unknown path `{}`; use {}", request.uri().path(), mcp_path)
+        } else {
+            "Unknown path".to_string()
+        };
         return Ok(json_response(
             StatusCode::NOT_FOUND,
-            rpc_error(
-                mcp_code::INVALID_REQUEST,
-                format!("Unknown path `{}`; use {MCP_PATH}", request.uri().path()),
-            )
-            .to_string(),
+            rpc_error(mcp_code::INVALID_REQUEST, message).to_string(),
         ));
+    }
+
+    // ChatGPT's custom-connector validator currently performs an SSE-style
+    // GET probe even for stateless 2026 MCP endpoints. The 2026 spec permits
+    // GET=405, but answering a short text/event-stream probe here improves
+    // compatibility without creating a persistent server-push channel.
+    if request.method() == Method::GET && allow_get_probe {
+        if !auth.accepts(request.headers()) {
+            let body = rpc_error(
+                mcp_code::SESSION_NOT_FOUND,
+                "Missing or invalid MCP authentication",
+            )
+            .to_string();
+            return Ok(unauthorized_response(&auth, body));
+        }
+        return Ok(sse_probe_response());
     }
 
     // Preserve the legacy loopback DELETE behavior for compatibility. The
@@ -325,7 +438,7 @@ async fn handle(
                 "Missing or invalid MCP authentication",
             )
             .to_string();
-            return Ok(json_response(StatusCode::UNAUTHORIZED, body));
+            return Ok(unauthorized_response(&auth, body));
         }
         return handle_delete(request.headers(), &state);
     }
@@ -346,7 +459,7 @@ async fn handle(
             "Missing or invalid MCP authentication",
         )
         .to_string();
-        return Ok(json_response(StatusCode::UNAUTHORIZED, body));
+        return Ok(unauthorized_response(&auth, body));
     }
 
     let headers = request.headers().clone();
@@ -875,6 +988,10 @@ mod tests {
 
         let loopback = McpAuth::bridge_secret("bridge-secret".into());
         assert!(!loopback.delete_requires_auth());
+
+        let no_auth = McpAuth::none();
+        assert!(no_auth.accepts(&HeaderMap::new()));
+        assert!(!no_auth.delete_requires_auth());
     }
 
     #[test]
