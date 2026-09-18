@@ -10,9 +10,11 @@ use ltb_core::policy::{Policy, PolicyEngine};
 use ltb_core::tools::ToolRegistry;
 use ltb_core::{Result, audit_path, policy_path};
 
+pub mod direct_mcp;
 pub mod http;
 pub mod mcp;
 pub mod mcp_servers;
+pub mod oauth;
 pub mod tunnel;
 pub mod websocket;
 
@@ -148,6 +150,59 @@ pub async fn run_mcp(
 ) -> std::io::Result<SocketAddr> {
     let listener = mcp::bind(port).await?;
     let address = listener.local_addr()?;
-    tokio::spawn(mcp::serve(listener, dispatcher, Arc::new(secret)));
+    tokio::spawn(mcp::serve(
+        listener,
+        dispatcher,
+        Arc::new(mcp::McpAuth::bridge_secret(secret)),
+    ));
     Ok(address)
+}
+
+/// Starts an opt-in Direct Remote MCP listener authenticated with a dedicated
+/// static Bearer token. Existing loopback/Tunnel behavior is separate and
+/// unchanged.
+pub async fn run_direct_mcp(
+    bind: SocketAddr,
+    dispatcher: Arc<Dispatcher>,
+    bearer_token: String,
+) -> std::io::Result<SocketAddr> {
+    let listener = mcp::bind_address(bind).await?;
+    let address = listener.local_addr()?;
+    tokio::spawn(mcp::serve(
+        listener,
+        dispatcher,
+        Arc::new(mcp::McpAuth::bearer(bearer_token)),
+    ));
+    Ok(address)
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectMcpRunning {
+    pub address: SocketAddr,
+    pub mcp_path: String,
+}
+
+/// Starts Direct MCP using the persisted GUI configuration. This is the entry
+/// point for OAuth and secret capability-URL modes.
+pub async fn run_configured_direct_mcp(
+    config: &direct_mcp::DirectMcpConfig,
+    dispatcher: Arc<Dispatcher>,
+) -> Result<DirectMcpRunning> {
+    let runtime = direct_mcp::build_runtime(config)?;
+    let listener = mcp::bind_address(runtime.bind)
+        .await
+        .map_err(|error| ltb_core::BridgeError::from_io("Failed to bind Direct MCP", error))?;
+    let address = listener.local_addr().map_err(|error| {
+        ltb_core::BridgeError::from_io("Failed to read Direct MCP address", error)
+    })?;
+    let mcp_path = runtime.mcp_path.clone();
+    tokio::spawn(mcp::serve_at(
+        listener,
+        dispatcher,
+        Arc::new(runtime.auth),
+        runtime.mcp_path,
+        runtime.reveal_path_in_errors,
+        true,
+    ));
+    Ok(DirectMcpRunning { address, mcp_path })
 }

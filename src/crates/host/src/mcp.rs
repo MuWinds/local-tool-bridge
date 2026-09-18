@@ -2,10 +2,10 @@
 //!
 //! This endpoint speaks the MCP Streamable HTTP protocol so that ChatGPT,
 //! Codex, or any other MCP client can reach the local tools. The supported
-//! path into it is OpenAI's Secure MCP Tunnel
-//! (`openai/tunnel-client`): the tunnel daemon runs locally, long-polls the
-//! OpenAI control plane for commands addressed to a tunnel, and forwards each
-//! one here as MCP JSON-RPC.
+//! The default path into it is OpenAI's Secure MCP Tunnel. An optional second
+//! listener can also be exposed through a user-managed HTTPS reverse proxy.
+//! The two paths deliberately use separate credentials so enabling direct
+//! access never weakens the loopback/Tunnel endpoint.
 //!
 //! There is deliberately **no second tool implementation**: every MCP method is
 //! translated onto the same [`Dispatcher`] the other transports use, so policy
@@ -16,12 +16,11 @@
 //!
 //! ## Security
 //!
-//! Bound to `127.0.0.1` and gated by the same shared secret as the loopback
-//! HTTP transport. Unlike that transport there is no in-band `bridge.hello`
-//! handshake (the MCP protocol has no equivalent), so the secret is required on
-//! **every** request, including `initialize`. The tunnel-client supplies it via
-//! `MCP_EXTRA_HEADERS` (and `MCP_DISCOVERY_EXTRA_HEADERS` for its startup
-//! probe); see `docs/chatgpt-mcp.md`.
+//! The normal listener is bound to `127.0.0.1` and gated by the same shared
+//! secret as the loopback HTTP transport. Direct Remote MCP uses a dedicated
+//! static Bearer token and authenticates every MCP operation, including session
+//! deletion. The legacy loopback DELETE behavior is preserved for compatibility.
+//! See `docs/chatgpt-mcp.md` and `docs/direct-mcp.md`.
 //!
 //! ## Protocol surface
 //!
@@ -78,8 +77,89 @@ const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 /// transport, so one secret gates every transport.
 const SECRET_HEADER: &str = "x-dlb-secret";
 
+/// Standard HTTP bearer authorization header used by Direct Remote MCP.
+const AUTHORIZATION_HEADER: &str = "authorization";
+
 /// MCP session header, echoed from client to server after `initialize`.
 const SESSION_HEADER: &str = "mcp-session-id";
+
+/// Authentication accepted by one MCP listener.
+#[derive(Clone)]
+pub enum McpAuth {
+    BridgeSecret(String),
+    StaticBearer(String),
+    None,
+    OAuth(Arc<crate::oauth::OAuthServer>),
+}
+
+impl McpAuth {
+    pub fn bridge_secret(secret: String) -> Self {
+        Self::BridgeSecret(secret)
+    }
+
+    pub fn bearer(token: String) -> Self {
+        Self::StaticBearer(token)
+    }
+
+    pub fn none() -> Self {
+        Self::None
+    }
+
+    pub fn oauth(server: Arc<crate::oauth::OAuthServer>) -> Self {
+        Self::OAuth(server)
+    }
+
+    fn accepts(&self, headers: &HeaderMap) -> bool {
+        match self {
+            Self::BridgeSecret(expected) => headers
+                .get(SECRET_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|provided| constant_time_eq(provided, expected)),
+            Self::StaticBearer(expected) => {
+                bearer_token(headers).is_some_and(|provided| constant_time_eq(provided, expected))
+            }
+            Self::None => true,
+            Self::OAuth(server) => {
+                bearer_token(headers).is_some_and(|token| server.validate_access_token(token))
+            }
+        }
+    }
+
+    fn delete_requires_auth(&self) -> bool {
+        matches!(self, Self::StaticBearer(_) | Self::OAuth(_))
+    }
+
+    fn oauth_server(&self) -> Option<Arc<crate::oauth::OAuthServer>> {
+        match self {
+            Self::OAuth(server) => Some(server.clone()),
+            _ => None,
+        }
+    }
+
+    fn resource_metadata_url(&self) -> Option<String> {
+        match self {
+            Self::OAuth(server) => Some(server.resource_metadata_url()),
+            _ => None,
+        }
+    }
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    let value = headers.get(AUTHORIZATION_HEADER)?.to_str().ok()?;
+    let (scheme, token) = value.split_once(' ')?;
+    (scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then_some(token)
+}
+
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.as_bytes()
+        .iter()
+        .zip(right.as_bytes())
+        .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+        == 0
+}
 
 /// MCP protocol version header, echoed on responses.
 const PROTOCOL_HEADER: &str = "mcp-protocol-version";
@@ -141,15 +221,52 @@ impl McpState {
     }
 }
 
-/// Runs the MCP server until the process exits.
+#[derive(Clone)]
+struct RequestContext {
+    dispatcher: Arc<Dispatcher>,
+    auth: Arc<McpAuth>,
+    state: Arc<McpState>,
+    mcp_path: Arc<String>,
+    reveal_path_in_errors: bool,
+    allow_get_probe: bool,
+    peer: SocketAddr,
+}
+
+/// Runs the default /mcp server until the process exits.
 pub async fn serve(
     listener: TcpListener,
     dispatcher: Arc<Dispatcher>,
-    secret: Arc<String>,
+    auth: Arc<McpAuth>,
+) -> std::io::Result<()> {
+    serve_at(
+        listener,
+        dispatcher,
+        auth,
+        MCP_PATH.to_string(),
+        true,
+        false,
+    )
+    .await
+}
+
+/// Runs MCP on an explicit endpoint path. Capability-URL mode sets
+/// `reveal_path_in_errors` to false so probes and logs do not disclose the path.
+pub async fn serve_at(
+    listener: TcpListener,
+    dispatcher: Arc<Dispatcher>,
+    auth: Arc<McpAuth>,
+    mcp_path: String,
+    reveal_path_in_errors: bool,
+    allow_get_probe: bool,
 ) -> std::io::Result<()> {
     let state = Arc::new(McpState::new());
     let address = listener.local_addr()?;
-    tracing::info!(%address, "MCP transport listening on http://{address}{MCP_PATH}");
+    if reveal_path_in_errors {
+        tracing::info!(%address, path = %mcp_path, "MCP transport listening");
+    } else {
+        tracing::info!(%address, "MCP capability-URL transport listening");
+    }
+    let mcp_path = Arc::new(mcp_path);
 
     loop {
         let (stream, peer) = match listener.accept().await {
@@ -160,16 +277,20 @@ pub async fn serve(
             }
         };
 
-        let dispatcher = dispatcher.clone();
-        let secret = secret.clone();
-        let state = state.clone();
+        let context = RequestContext {
+            dispatcher: dispatcher.clone(),
+            auth: auth.clone(),
+            state: state.clone(),
+            mcp_path: mcp_path.clone(),
+            reveal_path_in_errors,
+            allow_get_probe,
+            peer,
+        };
 
         tokio::spawn(async move {
             let service = service_fn(move |request| {
-                let dispatcher = dispatcher.clone();
-                let secret = secret.clone();
-                let state = state.clone();
-                async move { handle(request, dispatcher, secret, state, peer).await }
+                let context = context.clone();
+                async move { handle(request, context).await }
             });
 
             if let Err(error) = hyper::server::conn::http1::Builder::new()
@@ -193,6 +314,33 @@ fn json_response(status: StatusCode, body: String) -> Response<Full<Bytes>> {
         .unwrap_or_else(|_| Response::new(Full::new(Bytes::from("{}"))))
 }
 
+fn unauthorized_response(auth: &McpAuth, body: String) -> Response<Full<Bytes>> {
+    let mut builder = Response::builder()
+        .status(StatusCode::UNAUTHORIZED)
+        .header("content-type", "application/json; charset=utf-8")
+        .header("cache-control", "no-store")
+        .header("access-control-allow-origin", "*");
+    if let Some(metadata) = auth.resource_metadata_url() {
+        builder = builder.header(
+            "www-authenticate",
+            format!(r#"Bearer resource_metadata="{metadata}""#),
+        );
+    }
+    builder
+        .body(Full::new(Bytes::from(body)))
+        .unwrap_or_else(|_| Response::new(Full::new(Bytes::from("{}"))))
+}
+
+fn sse_probe_response() -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/event-stream")
+        .header("cache-control", "no-store")
+        .header("x-accel-buffering", "no")
+        .body(Full::new(Bytes::from_static(b": ltb-mcp-ready\n\n")))
+        .unwrap_or_else(|_| Response::new(Full::new(Bytes::new())))
+}
+
 /// A JSON-RPC error object in the MCP shape.
 fn rpc_error(code: i64, message: impl Into<String>) -> Value {
     json!({ "jsonrpc": "2.0", "id": null, "error": { "code": code, "message": message.into() } })
@@ -209,11 +357,17 @@ fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
 /// Handles one HTTP request.
 async fn handle(
     request: Request<Incoming>,
-    dispatcher: Arc<Dispatcher>,
-    secret: Arc<String>,
-    state: Arc<McpState>,
-    peer: SocketAddr,
+    context: RequestContext,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
+    let RequestContext {
+        dispatcher,
+        auth,
+        state,
+        mcp_path,
+        reveal_path_in_errors,
+        allow_get_probe,
+        peer,
+    } = context;
     // Preflight, answered before the origin/secret checks so a browser client
     // can complete the handshake.
     if request.method() == Method::OPTIONS {
@@ -223,7 +377,7 @@ async fn handle(
             .header("access-control-allow-methods", "POST, GET, DELETE, OPTIONS")
             .header(
                 "access-control-allow-headers",
-                "content-type, mcp-session-id, x-dlb-secret",
+                "content-type, mcp-session-id, x-dlb-secret, authorization",
             )
             .header("access-control-max-age", "600")
             .body(Full::new(Bytes::new()))
@@ -239,19 +393,53 @@ async fn handle(
         return Ok(json_response(StatusCode::OK, body));
     }
 
-    if request.uri().path() != MCP_PATH {
+    if let Some(oauth) = auth.oauth_server() {
+        if oauth.handles_path(request.uri().path()) {
+            return Ok(oauth.handle(request).await);
+        }
+    }
+
+    if request.uri().path() != mcp_path.as_str() {
+        let message = if reveal_path_in_errors {
+            format!("Unknown path `{}`; use {}", request.uri().path(), mcp_path)
+        } else {
+            "Unknown path".to_string()
+        };
         return Ok(json_response(
             StatusCode::NOT_FOUND,
-            rpc_error(
-                mcp_code::INVALID_REQUEST,
-                format!("Unknown path `{}`; use {MCP_PATH}", request.uri().path()),
-            )
-            .to_string(),
+            rpc_error(mcp_code::INVALID_REQUEST, message).to_string(),
         ));
     }
 
-    // Session termination is the one non-POST verb we accept.
+    // ChatGPT's custom-connector validator currently performs an SSE-style
+    // GET probe even for stateless 2026 MCP endpoints. The 2026 spec permits
+    // GET=405, but answering a short text/event-stream probe here improves
+    // compatibility without creating a persistent server-push channel.
+    if request.method() == Method::GET && allow_get_probe {
+        if !auth.accepts(request.headers()) {
+            let body = rpc_error(
+                mcp_code::SESSION_NOT_FOUND,
+                "Missing or invalid MCP authentication",
+            )
+            .to_string();
+            return Ok(unauthorized_response(&auth, body));
+        }
+        return Ok(sse_probe_response());
+    }
+
+    // Preserve the legacy loopback DELETE behavior for compatibility. The
+    // opt-in Direct Remote listener is public-facing, so its Bearer token is
+    // required for session deletion as well.
     if request.method() == Method::DELETE {
+        if auth.delete_requires_auth() && !auth.accepts(request.headers()) {
+            tracing::warn!(%peer, "rejected an unauthenticated MCP session deletion");
+            let body = rpc_error(
+                mcp_code::SESSION_NOT_FOUND,
+                "Missing or invalid MCP authentication",
+            )
+            .to_string();
+            return Ok(unauthorized_response(&auth, body));
+        }
         return handle_delete(request.headers(), &state);
     }
 
@@ -264,23 +452,14 @@ async fn handle(
         return Ok(json_response(StatusCode::METHOD_NOT_ALLOWED, body));
     }
 
-    // The secret gates every MCP request. There is no in-protocol handshake to
-    // exempt, and the tunnel-client sends the header on every request it makes
-    // (including the startup initialize probe via discovery headers).
-    let provided = request
-        .headers()
-        .get(SECRET_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string);
-
-    if provided.as_deref() != Some(secret.as_str()) {
-        tracing::warn!(%peer, "rejected an MCP request without the bridge secret");
+    if !auth.accepts(request.headers()) {
+        tracing::warn!(%peer, "rejected an unauthenticated MCP request");
         let body = rpc_error(
             mcp_code::SESSION_NOT_FOUND,
-            "Missing or invalid x-dlb-secret header; set MCP_EXTRA_HEADERS on the tunnel-client",
+            "Missing or invalid MCP authentication",
         )
         .to_string();
-        return Ok(json_response(StatusCode::UNAUTHORIZED, body));
+        return Ok(unauthorized_response(&auth, body));
     }
 
     let headers = request.headers().clone();
@@ -618,6 +797,33 @@ fn mcp_tool(descriptor: &ToolDescriptor) -> Value {
         "name": mcp_name(&descriptor.name),
         "description": mcp_description(descriptor),
         "inputSchema": descriptor.input_schema,
+        "outputSchema": mcp_output_schema(),
+    })
+}
+
+fn mcp_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "content": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "text" },
+                        "text": { "type": "string" }
+                    },
+                    "required": ["type", "text"],
+                    "additionalProperties": false
+                }
+            },
+            "isError": { "type": "boolean" },
+            "truncated": { "type": "boolean" },
+            "originalBytes": { "type": "integer", "minimum": 0 },
+            "durationMs": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["content", "isError"],
+        "additionalProperties": false
     })
 }
 
@@ -730,7 +936,11 @@ async fn handle_tools_call(
             .and_then(Value::as_bool)
             .unwrap_or(false);
         return Ok((
-            json!({ "content": content, "isError": is_error }),
+            json!({
+                "content": content,
+                "structuredContent": result,
+                "isError": is_error
+            }),
             None,
             None,
         ));
@@ -755,8 +965,16 @@ async fn handle_tools_call(
             return Err((mcp_code::INVALID_PARAMS, message));
         }
 
+        let content = json!([{ "type": "text", "text": message }]);
         return Ok((
-            json!({ "content": [{ "type": "text", "text": message }], "isError": true }),
+            json!({
+                "content": content,
+                "structuredContent": {
+                    "content": content,
+                    "isError": true
+                },
+                "isError": true
+            }),
             None,
             None,
         ));
@@ -770,12 +988,50 @@ async fn handle_tools_call(
 
 /// Binds the loopback MCP listener and serves until the process exits.
 pub async fn bind(port: u16) -> std::io::Result<TcpListener> {
-    TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await
+    bind_address(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await
+}
+
+/// Binds MCP to an explicit address. Callers exposing a non-loopback address
+/// must provide their own TLS termination; Direct Remote MCP normally keeps
+/// this on loopback and lets Caddy own public :443.
+pub async fn bind_address(address: SocketAddr) -> std::io::Result<TcpListener> {
+    TcpListener::bind(address).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bridge_secret_auth_is_preserved() {
+        let auth = McpAuth::bridge_secret("bridge-secret".into());
+        let mut headers = HeaderMap::new();
+        headers.insert(SECRET_HEADER, "bridge-secret".parse().unwrap());
+        assert!(auth.accepts(&headers));
+
+        headers.insert(SECRET_HEADER, "wrong".parse().unwrap());
+        assert!(!auth.accepts(&headers));
+    }
+
+    #[test]
+    fn direct_bearer_auth_accepts_standard_authorization_header() {
+        let auth = McpAuth::bearer("public-token".into());
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION_HEADER, "Bearer public-token".parse().unwrap());
+        assert!(auth.accepts(&headers));
+
+        headers.insert(AUTHORIZATION_HEADER, "Bearer wrong".parse().unwrap());
+        assert!(!auth.accepts(&headers));
+        assert!(!auth.accepts(&HeaderMap::new()));
+        assert!(auth.delete_requires_auth());
+
+        let loopback = McpAuth::bridge_secret("bridge-secret".into());
+        assert!(!loopback.delete_requires_auth());
+
+        let no_auth = McpAuth::none();
+        assert!(no_auth.accepts(&HeaderMap::new()));
+        assert!(!no_auth.delete_requires_auth());
+    }
 
     #[test]
     fn mcp_names_are_safe_and_reversible() {
@@ -836,6 +1092,15 @@ mod tests {
         assert_eq!(tool["name"], "fs_read_file");
         assert_eq!(tool["inputSchema"]["type"], "object");
         assert_eq!(tool["inputSchema"]["required"], json!(["path"]));
+        assert_eq!(tool["outputSchema"]["type"], "object");
+        assert_eq!(
+            tool["outputSchema"]["required"],
+            json!(["content", "isError"])
+        );
+        assert_eq!(
+            tool["outputSchema"]["properties"]["content"]["items"]["properties"]["type"]["const"],
+            "text"
+        );
         let description = tool["description"].as_str().unwrap();
         assert!(description.contains("may require human approval"));
         assert!(description.contains("forward slashes"));
