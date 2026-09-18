@@ -8,7 +8,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use app::BridgeApp;
+use app::{BridgeApp, BridgeAppInit};
 use approver::GuiApprover;
 
 mod app;
@@ -66,90 +66,127 @@ fn main() -> eframe::Result<()> {
 
     // Everything the window needs, resolved before the first frame so the UI
     // never shows a half-initialised state.
-    let (dispatcher, secret, http_address, websocket_address, mcp_address, tunnel_process) =
-        runtime.block_on(async {
-            let dispatcher = match ltb_host::build_dispatcher(None, true).await {
-                Ok(dispatcher) => dispatcher,
-                Err(error) => {
-                    eprintln!("failed to start the bridge: {error}");
-                    std::process::exit(1);
-                }
-            };
+    let (
+        dispatcher,
+        secret,
+        http_address,
+        websocket_address,
+        mcp_address,
+        direct_mcp_address,
+        direct_mcp_config,
+        tunnel_process,
+    ) = runtime.block_on(async {
+        let dispatcher = match ltb_host::build_dispatcher(None, true).await {
+            Ok(dispatcher) => dispatcher,
+            Err(error) => {
+                eprintln!("failed to start the bridge: {error}");
+                std::process::exit(1);
+            }
+        };
 
-            // Install the approver before any transport starts, so a call arriving
-            // during startup still reaches a human.
-            dispatcher.set_approver(approver.clone()).await;
+        // Install the approver before any transport starts, so a call arriving
+        // during startup still reaches a human.
+        dispatcher.set_approver(approver.clone()).await;
 
-            let secret = ltb_host::load_or_create_secret().unwrap_or_default();
+        let secret = ltb_host::load_or_create_secret().unwrap_or_default();
 
-            let mut http_address = None;
-            let mut websocket_address = None;
-            let mut mcp_address = None;
-            let mut tunnel_process = None;
+        let mut http_address = None;
+        let mut websocket_address = None;
+        let mut mcp_address = None;
+        let mut direct_mcp_address = None;
+        let direct_mcp_config = ltb_host::direct_mcp::load_config();
+        let mut tunnel_process = None;
 
-            for port in PORTS {
-                if http_address.is_none() {
-                    if let Ok(address) =
-                        ltb_host::run_http(*port, dispatcher.clone(), secret.clone()).await
-                    {
-                        http_address = Some(address.to_string());
-                        tracing::info!(%address, "HTTP transport listening");
-                    }
-                }
-                if websocket_address.is_none() {
-                    // The WebSocket transport is offered alongside HTTP so a client
-                    // that needs server push has somewhere to connect.
-                    if let Ok(address) =
-                        ltb_host::run_websocket(*port, dispatcher.clone(), secret.clone()).await
-                    {
-                        websocket_address = Some(address.to_string());
-                    }
-                }
-                if mcp_address.is_none() {
-                    // The MCP transport lets ChatGPT/Codex reach the same tools
-                    // through OpenAI's Secure MCP Tunnel.
-                    if let Ok(address) =
-                        ltb_host::run_mcp(*port, dispatcher.clone(), secret.clone()).await
-                    {
-                        mcp_address = Some(address.to_string());
-                        tracing::info!(%address, "MCP transport listening");
-                    }
-                }
-                if http_address.is_some() && websocket_address.is_some() && mcp_address.is_some() {
-                    break;
+        for port in PORTS {
+            if http_address.is_none() {
+                if let Ok(address) =
+                    ltb_host::run_http(*port, dispatcher.clone(), secret.clone()).await
+                {
+                    http_address = Some(address.to_string());
+                    tracing::info!(%address, "HTTP transport listening");
                 }
             }
+            if websocket_address.is_none() {
+                // The WebSocket transport is offered alongside HTTP so a client
+                // that needs server push has somewhere to connect.
+                if let Ok(address) =
+                    ltb_host::run_websocket(*port, dispatcher.clone(), secret.clone()).await
+                {
+                    websocket_address = Some(address.to_string());
+                }
+            }
+            if mcp_address.is_none() {
+                // The MCP transport lets ChatGPT/Codex reach the same tools
+                // through OpenAI's Secure MCP Tunnel.
+                if let Ok(address) =
+                    ltb_host::run_mcp(*port, dispatcher.clone(), secret.clone()).await
+                {
+                    mcp_address = Some(address.to_string());
+                    tracing::info!(%address, "MCP transport listening");
+                }
+            }
+            if http_address.is_some() && websocket_address.is_some() && mcp_address.is_some() {
+                break;
+            }
+        }
 
-            if let Some(mcp_address_value) = mcp_address.as_deref() {
-                let tunnel_config = ltb_host::tunnel::load_config();
-                if tunnel_config.enabled {
-                    let bridge_secret_path = ltb_core::config_dir().map(|dir| dir.join("secret"));
-                    if let Some(secret_path) = bridge_secret_path {
-                        match ltb_host::tunnel::TunnelProcess::start(
-                            &tunnel_config,
-                            &format!("http://{mcp_address_value}/mcp"),
-                            &secret_path,
-                        )
-                        .await
-                        {
-                            Ok(process) => tunnel_process = Some(process),
-                            Err(error) => {
-                                tracing::error!(%error, "failed to start Secure MCP Tunnel client")
-                            }
+        if direct_mcp_config.enabled {
+            match (
+                direct_mcp_config.socket_addr(),
+                ltb_host::direct_mcp::load_or_create_token(&direct_mcp_config),
+            ) {
+                (Ok(bind), Ok(token)) => {
+                    match ltb_host::run_direct_mcp(bind, dispatcher.clone(), token).await {
+                        Ok(address) => {
+                            direct_mcp_address = Some(address.to_string());
+                            tracing::info!(%address, "Direct Remote MCP transport listening");
+                        }
+                        Err(error) => {
+                            tracing::error!(%error, %bind, "failed to start Direct Remote MCP");
+                        }
+                    }
+                }
+                (Err(error), _) => {
+                    tracing::error!(%error, "invalid Direct Remote MCP bind address");
+                }
+                (_, Err(error)) => {
+                    tracing::error!(%error, "failed to load Direct Remote MCP bearer token");
+                }
+            }
+        }
+
+        if let Some(mcp_address_value) = mcp_address.as_deref() {
+            let tunnel_config = ltb_host::tunnel::load_config();
+            if tunnel_config.enabled {
+                let bridge_secret_path = ltb_core::config_dir().map(|dir| dir.join("secret"));
+                if let Some(secret_path) = bridge_secret_path {
+                    match ltb_host::tunnel::TunnelProcess::start(
+                        &tunnel_config,
+                        &format!("http://{mcp_address_value}/mcp"),
+                        &secret_path,
+                    )
+                    .await
+                    {
+                        Ok(process) => tunnel_process = Some(process),
+                        Err(error) => {
+                            tracing::error!(%error, "failed to start Secure MCP Tunnel client")
                         }
                     }
                 }
             }
+        }
 
-            (
-                dispatcher,
-                secret,
-                http_address,
-                websocket_address,
-                mcp_address,
-                tunnel_process,
-            )
-        });
+        (
+            dispatcher,
+            secret,
+            http_address,
+            websocket_address,
+            mcp_address,
+            direct_mcp_address,
+            direct_mcp_config,
+            tunnel_process,
+        )
+    });
 
     let handle = runtime.handle().clone();
 
@@ -169,15 +206,17 @@ fn main() -> eframe::Result<()> {
             // coverage, so without this every Chinese label renders as a box.
             fonts::install(&cc.egui_ctx);
 
-            let app = BridgeApp::new(
-                handle,
+            let app = BridgeApp::new(BridgeAppInit {
+                runtime: handle,
                 dispatcher,
                 secret,
                 http_address,
                 websocket_address,
                 mcp_address,
+                direct_mcp_address,
+                direct_mcp_config,
                 tunnel_process,
-            );
+            });
 
             Ok(Box::new(GuiFrame {
                 app,

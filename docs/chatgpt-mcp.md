@@ -82,3 +82,15 @@ ChatGPT
 3. 用 `tunnel-client doctor --explain` 验证，`tunnel-client run` 常驻运行；之后在 ChatGPT 创建 Connector，步骤同第 3 步。
 
 配置样例见 `docs/tunnel-client.chatgpt.yaml`。
+
+## 可选：不用 Tunnel，直接使用公网 HTTPS MCP
+
+如果机器本身已有公网入口，你可以继续保留上面的 Tunnel，也可以启用独立的
+**Direct Remote MCP**。它默认关闭，使用与本地 bridge secret 不同的静态 Bearer
+Token，并建议只绑定 `127.0.0.1:8792`，再由 Caddy / nginx 提供公网 HTTPS。
+
+完整部署方式、Caddyfile 示例与安全注意事项见 [Direct Remote MCP 与 Caddy](direct-mcp.md)。
+
+> Direct Remote MCP 不会改变 Secure MCP Tunnel：两条路径可以同时存在。客户端需要
+> 支持标准 `Authorization: Bearer <token>`（或在外层网关完成等价认证）；如果你的
+> ChatGPT 工作区当前只提供 Tunnel / OAuth 等认证选项，继续使用 Tunnel 即可。

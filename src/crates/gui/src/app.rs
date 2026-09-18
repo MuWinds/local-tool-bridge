@@ -2,6 +2,7 @@ use crate::approver::PendingApproval;
 use ltb_core::audit::{AuditEntry, AuditLog};
 use ltb_core::dispatch::Dispatcher;
 use ltb_core::policy::{Effect, Policy, Rule};
+use ltb_host::direct_mcp::DirectMcpConfig;
 use ltb_host::mcp_servers::{McpConfig, McpServerConfig};
 use ltb_host::tunnel::{TunnelConfig, TunnelProcess};
 use std::collections::BTreeMap;
@@ -18,6 +19,18 @@ pub struct ActiveApproval {
     pub challenge: ltb_core::dispatch::ApprovalChallenge,
     pub responder: Option<tokio::sync::oneshot::Sender<ltb_core::dispatch::ApprovalDecision>>,
 }
+
+pub struct BridgeAppInit {
+    pub runtime: tokio::runtime::Handle,
+    pub dispatcher: Arc<Dispatcher>,
+    pub secret: String,
+    pub http_address: Option<String>,
+    pub websocket_address: Option<String>,
+    pub mcp_address: Option<String>,
+    pub direct_mcp_address: Option<String>,
+    pub direct_mcp_config: DirectMcpConfig,
+    pub tunnel_process: Option<TunnelProcess>,
+}
 pub struct BridgeApp {
     pub runtime: tokio::runtime::Handle,
     pub dispatcher: Arc<Dispatcher>,
@@ -26,6 +39,8 @@ pub struct BridgeApp {
     pub http_address: Option<String>,
     pub websocket_address: Option<String>,
     pub mcp_address: Option<String>,
+    pub direct_mcp_address: Option<String>,
+    pub direct_mcp_config: DirectMcpConfig,
     pub secret: String,
     pub policy: Policy,
     pub dirty: bool,
@@ -45,27 +60,21 @@ pub struct BridgeApp {
     pub tunnel_api_key: String,
 }
 impl BridgeApp {
-    pub fn new(
-        runtime: tokio::runtime::Handle,
-        dispatcher: Arc<Dispatcher>,
-        secret: String,
-        http_address: Option<String>,
-        websocket_address: Option<String>,
-        mcp_address: Option<String>,
-        tunnel_process: Option<TunnelProcess>,
-    ) -> Self {
-        let audit = dispatcher.audit().clone();
-        let policy = runtime.block_on(dispatcher.policy_snapshot());
+    pub fn new(init: BridgeAppInit) -> Self {
+        let audit = init.dispatcher.audit().clone();
+        let policy = init.runtime.block_on(init.dispatcher.policy_snapshot());
         let tunnel_config = ltb_host::tunnel::load_config();
         Self {
-            runtime,
-            dispatcher,
+            runtime: init.runtime,
+            dispatcher: init.dispatcher,
             audit,
             tab: Tab::Status,
-            http_address,
-            websocket_address,
-            mcp_address,
-            secret,
+            http_address: init.http_address,
+            websocket_address: init.websocket_address,
+            mcp_address: init.mcp_address,
+            direct_mcp_address: init.direct_mcp_address,
+            direct_mcp_config: init.direct_mcp_config,
+            secret: init.secret,
             policy,
             dirty: false,
             audit_entries: Vec::new(),
@@ -80,7 +89,7 @@ impl BridgeApp {
             new_mcp_args: String::new(),
             new_mcp_cwd: String::new(),
             tunnel_config,
-            tunnel_process,
+            tunnel_process: init.tunnel_process,
             tunnel_api_key: String::new(),
         }
     }
@@ -226,6 +235,31 @@ impl BridgeApp {
             Err(e) => self.toast = Some((format!("写入客户端 MCP 配置失败：{e}"), false)),
         }
     }
+    pub fn save_direct_mcp_config(&mut self) {
+        match ltb_host::direct_mcp::save_config(&self.direct_mcp_config) {
+            Ok(path) => {
+                self.toast = Some((
+                    format!(
+                        "Direct MCP 配置已保存到 {}。监听地址/认证变更将在重启后生效。",
+                        path.display()
+                    ),
+                    true,
+                ))
+            }
+            Err(e) => self.toast = Some((format!("保存 Direct MCP 配置失败：{e}"), false)),
+        }
+    }
+
+    pub fn copy_direct_mcp_token(&mut self, ctx: &eframe::egui::Context) {
+        match ltb_host::direct_mcp::load_or_create_token(&self.direct_mcp_config) {
+            Ok(token) => {
+                ctx.copy_text(token);
+                self.toast = Some(("Direct MCP Bearer Token 已复制".into(), true));
+            }
+            Err(e) => self.toast = Some((format!("读取 Direct MCP Token 失败：{e}"), false)),
+        }
+    }
+
     pub fn save_tunnel_config(&mut self) {
         match ltb_host::tunnel::save_config(&self.tunnel_config) {
             Ok(path) => {

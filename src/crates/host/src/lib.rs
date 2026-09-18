@@ -10,6 +10,7 @@ use ltb_core::policy::{Policy, PolicyEngine};
 use ltb_core::tools::ToolRegistry;
 use ltb_core::{Result, audit_path, policy_path};
 
+pub mod direct_mcp;
 pub mod http;
 pub mod mcp;
 pub mod mcp_servers;
@@ -148,6 +149,28 @@ pub async fn run_mcp(
 ) -> std::io::Result<SocketAddr> {
     let listener = mcp::bind(port).await?;
     let address = listener.local_addr()?;
-    tokio::spawn(mcp::serve(listener, dispatcher, Arc::new(secret)));
+    tokio::spawn(mcp::serve(
+        listener,
+        dispatcher,
+        Arc::new(mcp::McpAuth::bridge_secret(secret)),
+    ));
+    Ok(address)
+}
+
+/// Starts an opt-in Direct Remote MCP listener authenticated with a dedicated
+/// static Bearer token. Existing loopback/Tunnel behavior is separate and
+/// unchanged.
+pub async fn run_direct_mcp(
+    bind: SocketAddr,
+    dispatcher: Arc<Dispatcher>,
+    bearer_token: String,
+) -> std::io::Result<SocketAddr> {
+    let listener = mcp::bind_address(bind).await?;
+    let address = listener.local_addr()?;
+    tokio::spawn(mcp::serve(
+        listener,
+        dispatcher,
+        Arc::new(mcp::McpAuth::bearer(bearer_token)),
+    ));
     Ok(address)
 }

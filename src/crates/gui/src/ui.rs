@@ -56,10 +56,73 @@ pub fn draw(app: &mut BridgeApp, ctx: &egui::Context) {
             Tab::Audit => draw_audit(app, ui),
             Tab::Setup => {
                 draw_setup(app, ui);
+                draw_direct_mcp_setup(app, ui);
                 draw_tunnel_setup(app, ui);
             }
         });
     });
+}
+
+fn draw_direct_mcp_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
+    ui.add_space(16.0);
+    ui.separator();
+    ui.heading("Direct Remote MCP");
+    ui.label(
+        RichText::new(
+            "可选：有公网入口或自建反向代理时，直接暴露一个独立的 MCP Listener。\
+             默认关闭，并与 Secure MCP Tunnel 使用不同凭据；推荐让 Caddy 负责公网 HTTPS，\
+             LTB 继续监听 127.0.0.1。",
+        )
+        .weak(),
+    );
+    ui.checkbox(
+        &mut app.direct_mcp_config.enabled,
+        "启动 GUI 时自动运行 Direct Remote MCP",
+    );
+    egui::Grid::new("direct-mcp")
+        .num_columns(2)
+        .spacing([10.0, 6.0])
+        .show(ui, |ui| {
+            ui.label("Bind");
+            ui.text_edit_singleline(&mut app.direct_mcp_config.bind);
+            ui.end_row();
+            ui.label("Port");
+            ui.add(egui::DragValue::new(&mut app.direct_mcp_config.port).range(1..=u16::MAX));
+            ui.end_row();
+            ui.label("Public URL");
+            ui.text_edit_singleline(&mut app.direct_mcp_config.public_base_url);
+            ui.end_row();
+            ui.label("Bearer Token 文件");
+            ui.label(
+                ltb_host::direct_mcp::token_path(&app.direct_mcp_config)
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "不可用".into()),
+            );
+            ui.end_row();
+        });
+    ui.label(
+        RichText::new(
+            "认证使用标准 Authorization: Bearer <token>。配置或 Token 变更后请重启控制面板；\
+             不要把 8792 直接裸露到公网，优先使用 Caddy/其他 TLS 反向代理。",
+        )
+        .weak()
+        .small(),
+    );
+    ui.horizontal(|ui| {
+        if ui.button("复制 Bearer Token").clicked() {
+            app.copy_direct_mcp_token(ui.ctx());
+        }
+        if ui.button("保存 Direct MCP 配置").clicked() {
+            app.save_direct_mcp_config();
+        }
+    });
+    if let Some(path) = ltb_host::direct_mcp::config_path() {
+        ui.label(
+            RichText::new(format!("Direct MCP 配置：{}", path.display()))
+                .monospace()
+                .small(),
+        );
+    }
 }
 
 fn draw_tunnel_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
@@ -161,6 +224,15 @@ fn draw_status(app: &mut BridgeApp, ui: &mut egui::Ui) {
                     .map(|a| format!("http://{a}/mcp"))
                     .unwrap_or_else(|| "未启动".into()),
             );
+            ui.end_row();
+            ui.label("Direct Remote MCP");
+            ui.label(if let Some(address) = app.direct_mcp_address.as_deref() {
+                format!("已运行 · http://{address}/mcp")
+            } else if app.direct_mcp_config.enabled {
+                "已启用但未运行".into()
+            } else {
+                "未启用".into()
+            });
             ui.end_row();
             ui.label("Secure MCP Tunnel");
             ui.label(if app.tunnel_process.is_some() {

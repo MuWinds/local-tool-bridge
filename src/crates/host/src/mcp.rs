@@ -2,10 +2,10 @@
 //!
 //! This endpoint speaks the MCP Streamable HTTP protocol so that ChatGPT,
 //! Codex, or any other MCP client can reach the local tools. The supported
-//! path into it is OpenAI's Secure MCP Tunnel
-//! (`openai/tunnel-client`): the tunnel daemon runs locally, long-polls the
-//! OpenAI control plane for commands addressed to a tunnel, and forwards each
-//! one here as MCP JSON-RPC.
+//! The default path into it is OpenAI's Secure MCP Tunnel. An optional second
+//! listener can also be exposed through a user-managed HTTPS reverse proxy.
+//! The two paths deliberately use separate credentials so enabling direct
+//! access never weakens the loopback/Tunnel endpoint.
 //!
 //! There is deliberately **no second tool implementation**: every MCP method is
 //! translated onto the same [`Dispatcher`] the other transports use, so policy
@@ -16,12 +16,11 @@
 //!
 //! ## Security
 //!
-//! Bound to `127.0.0.1` and gated by the same shared secret as the loopback
-//! HTTP transport. Unlike that transport there is no in-band `bridge.hello`
-//! handshake (the MCP protocol has no equivalent), so the secret is required on
-//! **every** request, including `initialize`. The tunnel-client supplies it via
-//! `MCP_EXTRA_HEADERS` (and `MCP_DISCOVERY_EXTRA_HEADERS` for its startup
-//! probe); see `docs/chatgpt-mcp.md`.
+//! The normal listener is bound to `127.0.0.1` and gated by the same shared
+//! secret as the loopback HTTP transport. Direct Remote MCP uses a dedicated
+//! static Bearer token and authenticates every MCP operation, including session
+//! deletion. The legacy loopback DELETE behavior is preserved for compatibility.
+//! See `docs/chatgpt-mcp.md` and `docs/direct-mcp.md`.
 //!
 //! ## Protocol surface
 //!
@@ -78,8 +77,73 @@ const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 /// transport, so one secret gates every transport.
 const SECRET_HEADER: &str = "x-dlb-secret";
 
+/// Standard HTTP bearer authorization header used by Direct Remote MCP.
+const AUTHORIZATION_HEADER: &str = "authorization";
+
 /// MCP session header, echoed from client to server after `initialize`.
 const SESSION_HEADER: &str = "mcp-session-id";
+
+/// Authentication accepted by one MCP listener.
+///
+/// The loopback/Tunnel listener is constructed with only `bridge_secret`; the
+/// opt-in Direct Remote listener is constructed with only `bearer_token`.
+#[derive(Debug, Clone)]
+pub struct McpAuth {
+    bridge_secret: Option<String>,
+    bearer_token: Option<String>,
+}
+
+impl McpAuth {
+    pub fn bridge_secret(secret: String) -> Self {
+        Self {
+            bridge_secret: Some(secret),
+            bearer_token: None,
+        }
+    }
+
+    pub fn bearer(token: String) -> Self {
+        Self {
+            bridge_secret: None,
+            bearer_token: Some(token),
+        }
+    }
+
+    fn accepts(&self, headers: &HeaderMap) -> bool {
+        let bridge_ok = self.bridge_secret.as_deref().is_some_and(|expected| {
+            headers
+                .get(SECRET_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|provided| constant_time_eq(provided, expected))
+        });
+
+        let bearer_ok = self.bearer_token.as_deref().is_some_and(|expected| {
+            bearer_token(headers).is_some_and(|provided| constant_time_eq(provided, expected))
+        });
+
+        bridge_ok || bearer_ok
+    }
+
+    fn delete_requires_auth(&self) -> bool {
+        self.bearer_token.is_some()
+    }
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    let value = headers.get(AUTHORIZATION_HEADER)?.to_str().ok()?;
+    let (scheme, token) = value.split_once(' ')?;
+    (scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then_some(token)
+}
+
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.as_bytes()
+        .iter()
+        .zip(right.as_bytes())
+        .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+        == 0
+}
 
 /// MCP protocol version header, echoed on responses.
 const PROTOCOL_HEADER: &str = "mcp-protocol-version";
@@ -145,7 +209,7 @@ impl McpState {
 pub async fn serve(
     listener: TcpListener,
     dispatcher: Arc<Dispatcher>,
-    secret: Arc<String>,
+    auth: Arc<McpAuth>,
 ) -> std::io::Result<()> {
     let state = Arc::new(McpState::new());
     let address = listener.local_addr()?;
@@ -161,15 +225,15 @@ pub async fn serve(
         };
 
         let dispatcher = dispatcher.clone();
-        let secret = secret.clone();
+        let auth = auth.clone();
         let state = state.clone();
 
         tokio::spawn(async move {
             let service = service_fn(move |request| {
                 let dispatcher = dispatcher.clone();
-                let secret = secret.clone();
+                let auth = auth.clone();
                 let state = state.clone();
-                async move { handle(request, dispatcher, secret, state, peer).await }
+                async move { handle(request, dispatcher, auth, state, peer).await }
             });
 
             if let Err(error) = hyper::server::conn::http1::Builder::new()
@@ -210,7 +274,7 @@ fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
 async fn handle(
     request: Request<Incoming>,
     dispatcher: Arc<Dispatcher>,
-    secret: Arc<String>,
+    auth: Arc<McpAuth>,
     state: Arc<McpState>,
     peer: SocketAddr,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
@@ -223,7 +287,7 @@ async fn handle(
             .header("access-control-allow-methods", "POST, GET, DELETE, OPTIONS")
             .header(
                 "access-control-allow-headers",
-                "content-type, mcp-session-id, x-dlb-secret",
+                "content-type, mcp-session-id, x-dlb-secret, authorization",
             )
             .header("access-control-max-age", "600")
             .body(Full::new(Bytes::new()))
@@ -250,8 +314,19 @@ async fn handle(
         ));
     }
 
-    // Session termination is the one non-POST verb we accept.
+    // Preserve the legacy loopback DELETE behavior for compatibility. The
+    // opt-in Direct Remote listener is public-facing, so its Bearer token is
+    // required for session deletion as well.
     if request.method() == Method::DELETE {
+        if auth.delete_requires_auth() && !auth.accepts(request.headers()) {
+            tracing::warn!(%peer, "rejected an unauthenticated MCP session deletion");
+            let body = rpc_error(
+                mcp_code::SESSION_NOT_FOUND,
+                "Missing or invalid MCP authentication",
+            )
+            .to_string();
+            return Ok(json_response(StatusCode::UNAUTHORIZED, body));
+        }
         return handle_delete(request.headers(), &state);
     }
 
@@ -264,20 +339,11 @@ async fn handle(
         return Ok(json_response(StatusCode::METHOD_NOT_ALLOWED, body));
     }
 
-    // The secret gates every MCP request. There is no in-protocol handshake to
-    // exempt, and the tunnel-client sends the header on every request it makes
-    // (including the startup initialize probe via discovery headers).
-    let provided = request
-        .headers()
-        .get(SECRET_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string);
-
-    if provided.as_deref() != Some(secret.as_str()) {
-        tracing::warn!(%peer, "rejected an MCP request without the bridge secret");
+    if !auth.accepts(request.headers()) {
+        tracing::warn!(%peer, "rejected an unauthenticated MCP request");
         let body = rpc_error(
             mcp_code::SESSION_NOT_FOUND,
-            "Missing or invalid x-dlb-secret header; set MCP_EXTRA_HEADERS on the tunnel-client",
+            "Missing or invalid MCP authentication",
         )
         .to_string();
         return Ok(json_response(StatusCode::UNAUTHORIZED, body));
@@ -770,12 +836,46 @@ async fn handle_tools_call(
 
 /// Binds the loopback MCP listener and serves until the process exits.
 pub async fn bind(port: u16) -> std::io::Result<TcpListener> {
-    TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await
+    bind_address(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await
+}
+
+/// Binds MCP to an explicit address. Callers exposing a non-loopback address
+/// must provide their own TLS termination; Direct Remote MCP normally keeps
+/// this on loopback and lets Caddy own public :443.
+pub async fn bind_address(address: SocketAddr) -> std::io::Result<TcpListener> {
+    TcpListener::bind(address).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bridge_secret_auth_is_preserved() {
+        let auth = McpAuth::bridge_secret("bridge-secret".into());
+        let mut headers = HeaderMap::new();
+        headers.insert(SECRET_HEADER, "bridge-secret".parse().unwrap());
+        assert!(auth.accepts(&headers));
+
+        headers.insert(SECRET_HEADER, "wrong".parse().unwrap());
+        assert!(!auth.accepts(&headers));
+    }
+
+    #[test]
+    fn direct_bearer_auth_accepts_standard_authorization_header() {
+        let auth = McpAuth::bearer("public-token".into());
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION_HEADER, "Bearer public-token".parse().unwrap());
+        assert!(auth.accepts(&headers));
+
+        headers.insert(AUTHORIZATION_HEADER, "Bearer wrong".parse().unwrap());
+        assert!(!auth.accepts(&headers));
+        assert!(!auth.accepts(&HeaderMap::new()));
+        assert!(auth.delete_requires_auth());
+
+        let loopback = McpAuth::bridge_secret("bridge-secret".into());
+        assert!(!loopback.delete_requires_auth());
+    }
 
     #[test]
     fn mcp_names_are_safe_and_reversible() {
