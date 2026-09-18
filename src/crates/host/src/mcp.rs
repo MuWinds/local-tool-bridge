@@ -797,6 +797,33 @@ fn mcp_tool(descriptor: &ToolDescriptor) -> Value {
         "name": mcp_name(&descriptor.name),
         "description": mcp_description(descriptor),
         "inputSchema": descriptor.input_schema,
+        "outputSchema": mcp_output_schema(),
+    })
+}
+
+fn mcp_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "content": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": "text" },
+                        "text": { "type": "string" }
+                    },
+                    "required": ["type", "text"],
+                    "additionalProperties": false
+                }
+            },
+            "isError": { "type": "boolean" },
+            "truncated": { "type": "boolean" },
+            "originalBytes": { "type": "integer", "minimum": 0 },
+            "durationMs": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["content", "isError"],
+        "additionalProperties": false
     })
 }
 
@@ -909,7 +936,11 @@ async fn handle_tools_call(
             .and_then(Value::as_bool)
             .unwrap_or(false);
         return Ok((
-            json!({ "content": content, "isError": is_error }),
+            json!({
+                "content": content,
+                "structuredContent": result,
+                "isError": is_error
+            }),
             None,
             None,
         ));
@@ -934,8 +965,16 @@ async fn handle_tools_call(
             return Err((mcp_code::INVALID_PARAMS, message));
         }
 
+        let content = json!([{ "type": "text", "text": message }]);
         return Ok((
-            json!({ "content": [{ "type": "text", "text": message }], "isError": true }),
+            json!({
+                "content": content,
+                "structuredContent": {
+                    "content": content,
+                    "isError": true
+                },
+                "isError": true
+            }),
             None,
             None,
         ));
@@ -1053,6 +1092,15 @@ mod tests {
         assert_eq!(tool["name"], "fs_read_file");
         assert_eq!(tool["inputSchema"]["type"], "object");
         assert_eq!(tool["inputSchema"]["required"], json!(["path"]));
+        assert_eq!(tool["outputSchema"]["type"], "object");
+        assert_eq!(
+            tool["outputSchema"]["required"],
+            json!(["content", "isError"])
+        );
+        assert_eq!(
+            tool["outputSchema"]["properties"]["content"]["items"]["properties"]["type"]["const"],
+            "text"
+        );
         let description = tool["description"].as_str().unwrap();
         assert!(description.contains("may require human approval"));
         assert!(description.contains("forward slashes"));
