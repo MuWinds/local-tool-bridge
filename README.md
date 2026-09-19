@@ -1,9 +1,11 @@
 # Local Tool Bridge
 
-让 ChatGPT / Codex 安全地使用你电脑上的工具——读写文件、执行命令、修改代码。一切经由本地控制面板：每次调用都可以先看再批，全程留痕。
+让 ChatGPT 网页端使用你电脑上的工具——读写文件、执行命令、修改代码，提供跟 Codex 类似的体验
+一切经由本地控制面板：每次调用都可以先看再批，全程留痕。
+**注意：本项目推荐仅作为 Codex 额度不够用的平替，相比 Codex 肯定会有功能上的缺失**
 
 - **控制面板（ltb-gui）**：原生桌面窗口，启动即用。授权、策略、审计、接入 ChatGPT 都在这里完成。
-- **内置服务与隧道**：MCP / HTTP / WebSocket 端点与 ChatGPT 安全隧道全部内置，无需另装任何客户端程序。
+- **内置服务与隧道**：MCP 与 ChatGPT 安全隧道全部内置，无需另装任何客户端程序。
 - **可选 Direct Remote MCP**：保留 Tunnel 默认路径；公网模式可选 Static Bearer、OAuth 2.1 + PKCE，或高熵 Secret Path（No Auth），并可配合 Caddy 提供 HTTPS。
 
 ---
@@ -50,9 +52,9 @@ cd src && cargo build --release
 1. 填 OpenAI 平台创建的 **Tunnel ID**；
 2. 粘贴 **Runtime API Key** 并点「保存 Tunnel API Key」；
 3. 勾选「启动 GUI 时自动运行 Rust Tunnel」并点「保存 Tunnel 配置」；
-4. 在 ChatGPT 设置里新建 Connector，选择你的 Tunnel、扫描工具，即可开始使用。
+4. 开启开发者模式，在 ChatGPT 设置里新建 Connector，选择你的 Tunnel、扫描工具，在**聊天模式**下选择你创建的 Connector 即可使用
 
-详细步骤见 [让 ChatGPT 使用 Local Tool Bridge](docs/chatgpt-mcp.md)。有公网 IP / 域名并希望绕过 Tunnel 的用户，可看 [Direct Remote MCP 与 Caddy](docs/direct-mcp.md)。
+详细步骤见 [让 ChatGPT 使用 Local Tool Bridge](docs/chatgpt-mcp.md)。
 
 ---
 
@@ -79,7 +81,7 @@ cd src && cargo build --release
 
 ### 审计日志
 
-每一次工具调用的流水账：时间、工具、结果（允许 / 已批准 / 已拒绝 / 用户拒绝 / 超时 / 失败）和参数。被拒绝的调用同样记录在案。
+每一次工具调用的流水账：时间、工具、结果（允许 / 已批准 / 已拒绝 / 用户拒绝 / 超时 / 失败）和参数。
 
 ### MCP 设置
 
@@ -133,8 +135,6 @@ cd src && cargo build --release
 ./src/target/release/ltb-host serve-mcp        # MCP，默认 http://127.0.0.1:8789/mcp
 # Direct/反代模式：需显式提供 Bearer token 文件
 ./src/target/release/ltb-host serve-mcp --mcp-bind 127.0.0.1 --mcp-port 8792 --mcp-bearer-token-file /path/to/token
-./src/target/release/ltb-host serve            # HTTP，默认 http://127.0.0.1:8788/rpc
-./src/target/release/ltb-host serve-ws         # WebSocket
 ./src/target/release/ltb-host --print-secret   # 只打印连接令牌
 ```
 
@@ -147,33 +147,6 @@ cd src && cargo build --release
 - Linux：`~/.config/local-tool-bridge/`
 
 包括连接令牌（`secret`）、策略（`policy.json`）、审计日志（`audit.jsonl`）、Direct MCP 配置与凭据（`direct-mcp*.json` / `direct-mcp-*`）、隧道配置（`tunnel.json`）等。
-
----
-
-## 项目结构
-
-```
-local-tool-bridge/
-├── docs/
-│   ├── chatgpt-mcp.md           # 接入 ChatGPT / Codex 的完整指南
-│   └── tunnel-client.chatgpt.yaml  # 无界面模式的 tunnel-client 配置样例
-├── src/                         # Rust 工作区
-│   └── crates/
-│       ├── core/                # 策略引擎、路径沙箱、工具、审计
-│       ├── host/                # HTTP / WebSocket / MCP 传输与内置隧道
-│       └── gui/                 # egui 控制面板
-└── scripts/                     # 端到端冒烟测试（驱动真实二进制）
-```
-
----
-
-## 测试
-
-```bash
-cd src && cargo test                          # 单元测试 + 集成测试
-node scripts/smoke-http.mjs                    # HTTP 端到端（需先构建）
-node scripts/smoke-mcp.mjs                     # MCP 端到端（需先构建）
-```
 
 ---
 
