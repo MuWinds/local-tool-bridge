@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Local bridge host: loopback WebSocket, MCP, and Chrome native messaging transports."
+description = "Local bridge host: loopback HTTP, WebSocket, and MCP transports."
 
 [lib]
 name = "ltb_host"

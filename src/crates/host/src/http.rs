@@ -1,45 +1,23 @@
 //! The loopback HTTP transport.
 //!
-//! ## Why HTTP is the recommended primary transport
-//!
-//! Chrome 142 introduced Local Network Access: a request from a *public* origin
-//! to loopback (`127.0.0.0/8`, `::1`) is now gated behind a user permission
-//! prompt, and WebSockets were folded in from Chrome 147. Crucially, Chrome's
-//! own guidance states that **extension service workers holding the necessary
-//! `host_permissions` are exempt**, while a page's main world is not.
-//!
-//! Two architectural consequences follow, and both are why this transport
-//! exists rather than being a convenience:
-//!
-//! 1. **The extension's service worker must own the local channel.** A page
-//!    main-world script can no longer reliably reach loopback. (A content
-//!    script is no help either: it inherits the page's origin and CORS rules
-//!    regardless of `host_permissions`.)
-//! 2. **A persistent socket is the wrong shape for MV3.** A long-lived
-//!    WebSocket is a documented service-worker keep-alive anti-pattern: it
-//!    prevents the worker from ever sleeping. Request/response HTTP lets the
-//!    worker idle normally and wake on demand.
-//!
-//! The WebSocket transport remains available for push-driven flows and for
-//! clients outside a service worker. Both share one dispatcher.
+//! This transport serves local process clients: the MCP tunnel and any script
+//! that speaks the bridge's JSON-RPC over HTTP. It is request/response, so a
+//! client can idle between calls instead of holding a socket open the way the
+//! WebSocket transport does. Both share one dispatcher.
 //!
 //! ## Security
 //!
 //! Bound to `127.0.0.1` only, and gated by the same shared secret as the
 //! WebSocket transport.
 //!
-//! **The secret — not the `Origin` header — is the security boundary.** Two
-//! facts force this:
+//! **The secret — not the `Origin` header — is the security boundary.** CORS is
+//! a *read* control, not an execution control: a cross-origin "simple" request
+//! is still delivered and executed by the server. A local process can also forge
+//! any `Origin` it likes, so an origin allowlist would prove nothing.
 //!
-//! - CORS is a *read* control, not an execution control: a cross-origin "simple"
-//!   request is still delivered and executed by the server.
-//! - An extension service worker calling a host listed in its `host_permissions`
-//!   is treated as same-origin and **may send no `Origin` header at all**.
-//!
-//! So an origin allowlist cannot gate access: rejecting on a missing Origin would
-//! break the primary client, and accepting on a present one proves nothing. The
-//! origin check below is kept only as a cheap early rejection of obviously
-//! unrelated web pages, and a missing Origin is explicitly tolerated.
+//! The origin check below is kept only as a cheap early rejection: the bridge
+//! serves no browser origins, so any request carrying one is refused, and a
+//! missing `Origin` is explicitly tolerated.
 
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -98,8 +76,8 @@ pub async fn serve(
                 async move { handle(request, dispatcher, secret, peer).await }
             });
 
-            // HTTP/1.1 with keep-alive: the extension may issue several calls in
-            // a burst, and connection reuse avoids a handshake per tool call.
+            // HTTP/1.1 with keep-alive: a client may issue several calls in a
+            // burst, and connection reuse avoids a handshake per tool call.
             if let Err(error) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(TokioIo::new(stream), service)
                 .await
@@ -110,14 +88,13 @@ pub async fn serve(
     }
 }
 
-/// Builds a JSON response with the CORS headers the extension needs.
+/// Builds a JSON response with the CORS headers a browser client expects.
 fn json_response(status: StatusCode, body: String, origin: Option<&str>) -> Response<Full<Bytes>> {
     let mut builder = Response::builder()
         .status(status)
         .header("content-type", "application/json; charset=utf-8")
-        // The extension's service worker is exempt from CORS via its host
-        // permissions, but returning these headers also makes the endpoint
-        // usable from a content script or a manual test client.
+        // Browser origins are refused above, but echoing the headers keeps a
+        // manual test client (or a preflight) working as expected.
         .header("cache-control", "no-store");
 
     if let Some(origin) = origin {
@@ -303,8 +280,8 @@ async fn handle(
         }
     };
 
-    // HTTP is a browser-mediated channel, so it is untrusted in the same way the
-    // WebSocket is: the secret above is what authorises it.
+    // The transport cannot vouch for the caller, so it is untrusted in the same
+    // way the WebSocket is: the secret verified above is what authorises it.
     let reply = dispatcher.handle(classified, PeerTrust::Untrusted).await;
 
     let body = match reply {
@@ -326,11 +303,11 @@ mod tests {
 
     #[test]
     fn rejects_every_browser_origin() {
-        // The bridge no longer serves browser origins; local process clients
-        // send no Origin header and authenticate with the shared secret.
+        // The bridge serves no browser origins; local process clients send no
+        // Origin header and authenticate with the shared secret.
         assert!(!origin_allowed("chrome-extension://abcdef"));
-        assert!(!origin_allowed("https://evil.example.com"));
+        assert!(!origin_allowed("https://example.com"));
         assert!(!origin_allowed(""));
-        assert!(!origin_allowed("https://deepseek.com.attacker.net"));
+        assert!(!origin_allowed("https://example.com.attacker.net"));
     }
 }

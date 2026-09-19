@@ -221,15 +221,11 @@ mod tests {
 
     #[test]
     fn rejects_every_browser_origin() {
-        // The bridge no longer serves browser origins (DeepSeek page or
-        // extension), so any Origin header is refused.
-        assert!(!origin_allowed("https://chat.deepseek.com"));
+        // The bridge serves no browser origins, so any Origin header is refused.
+        assert!(!origin_allowed("https://example.com"));
+        assert!(!origin_allowed("https://example.com.attacker.net"));
         assert!(!origin_allowed("chrome-extension://abcdefghijklmnop"));
         assert!(!origin_allowed("moz-extension://abc"));
-        assert!(!origin_allowed(
-            "https://evil-chat.deepseek.com.attacker.net"
-        ));
-        assert!(!origin_allowed("https://notdeepseek.com"));
-        assert!(!origin_allowed("https://example.com"));
+        assert!(!origin_allowed("https://notexample.com"));
     }
 }

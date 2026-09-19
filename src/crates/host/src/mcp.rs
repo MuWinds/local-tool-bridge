@@ -567,11 +567,11 @@ fn handle_initialize(
             "version": env!("CARGO_PKG_VERSION")
         },
         "instructions": concat!(
-            "This server exposes local filesystem, shell, and HTTP tools through the ",
+            "This server exposes local filesystem and shell tools through the ",
             "Local Tool Bridge. Every call is governed by a local policy and may ",
             "require human approval in the bridge window before it runs. Paths must be ",
             "absolute; on Windows prefer forward slashes (C:/Users/...) over backslashes. ",
-            "The shell tool is a real command shell: think before invoking destructive commands."
+            "The shell tools run real commands: think before invoking destructive commands."
         )
     });
 
