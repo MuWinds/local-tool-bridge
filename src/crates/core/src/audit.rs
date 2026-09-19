@@ -209,9 +209,12 @@ impl AuditLog {
 
 /// Keys whose values are replaced before an entry is written.
 ///
-/// File *contents* and request *bodies* are the two arguments most likely to
-/// contain a secret, and they are also the least useful to replay in a log.
+/// File *contents* are the argument most likely to contain a secret and the
+/// least useful to replay in a log. The client-facing `apply_patch` carries them
+/// under `patch`; the remaining keys are kept so a future tool that names a
+/// credential field is covered without another audit-log change.
 const REDACTED_KEYS: &[&str] = &[
+    "patch",
     "content",
     "body",
     "stdin",
@@ -310,6 +313,16 @@ mod tests {
                 .unwrap()
                 .contains("redacted")
         );
+    }
+
+    #[test]
+    fn redaction_hides_apply_patch_documents() {
+        let redacted = redact_arguments(&serde_json::json!({
+            "patch": "*** Begin Patch\n*** Add File: /tmp/a.txt\n+secret\n*** End Patch"
+        }));
+        let patch = redacted["patch"].as_str().unwrap();
+        assert!(patch.contains("redacted"));
+        assert!(!patch.contains("secret"));
     }
 
     #[test]

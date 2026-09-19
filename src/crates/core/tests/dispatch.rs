@@ -599,6 +599,56 @@ async fn a_remembered_approval_adds_a_scoped_rule() {
 }
 
 #[tokio::test]
+async fn a_remembered_call_without_a_path_is_not_persisted() {
+    let approver = Arc::new(FixedApprover {
+        decision: Some(ApprovalDecision {
+            approved: true,
+            remember: true,
+        }),
+    });
+
+    let (dispatcher, workspace) = dispatcher_with(
+        vec![Rule {
+            tool: "apply_patch".into(),
+            effect: Effect::Ask,
+            when: None,
+            note: None,
+        }],
+        vec![],
+        Some(approver),
+    )
+    .await;
+
+    let target = workspace.path().join("unscoped.txt");
+
+    let reply = call(
+        &dispatcher,
+        "tools.call",
+        json!({
+            "name": "apply_patch",
+            "arguments": { "patch": add_file_patch(&target, "x") },
+            "callId": "c12",
+            "origin": "x"
+        }),
+    )
+    .await;
+
+    assert!(reply["result"].is_object(), "expected success, got {reply}");
+
+    // The user approved this patch, not every future one. With no path to scope
+    // the rule to, remembering must be skipped rather than widened to allow-all.
+    let policy = dispatcher.policy_snapshot().await;
+    assert!(
+        !policy
+            .rules
+            .iter()
+            .any(|rule| rule.tool == "apply_patch" && rule.effect == Effect::Allow),
+        "an unscoped allow rule was persisted: {:?}",
+        policy.rules
+    );
+}
+
+#[tokio::test]
 async fn the_destructive_denylist_outranks_an_allow_rule_end_to_end() {
     let (dispatcher, _workspace) = dispatcher_with(
         vec![Rule {

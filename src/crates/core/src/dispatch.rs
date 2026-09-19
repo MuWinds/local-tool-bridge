@@ -539,13 +539,14 @@ impl Dispatcher {
     }
 
     /// Persists an allow rule for a call the user chose to remember.
+    ///
+    /// A remembered approval is only written when it can be scoped to what the
+    /// user actually saw. `read_file`/`list_dir` are scoped to the directory
+    /// they touched, so approving one file cannot open the rest. A command or a
+    /// patch has no such bound, and persisting an unscoped allow for it would
+    /// turn "approve once" into "approve forever", so it is skipped instead.
     async fn remember_rule(&self, name: &str, arguments: &Value) {
-        let mut policy = self.policy_snapshot().await;
-        let note = format!("Auto-added when the user approved `{name}` once and chose to remember");
-
-        // A filesystem call is remembered for the directory it touched, not for
-        // the whole filesystem: approving one file must not open the rest.
-        let when = arguments
+        let scope = arguments
             .get("path")
             .and_then(Value::as_str)
             .and_then(|path| std::path::Path::new(path).parent())
@@ -554,13 +555,25 @@ impl Dispatcher {
                 ..Default::default()
             });
 
+        let Some(when) = scope else {
+            tracing::warn!(
+                tool = name,
+                "not persisting a remembered approval: this call has no path to scope it to, \
+                 and an unscoped allow rule would approve every future call"
+            );
+            return;
+        };
+
+        let mut policy = self.policy_snapshot().await;
         policy.rules.insert(
             0,
             crate::policy::Rule {
                 tool: name.to_string(),
                 effect: Effect::Allow,
-                when,
-                note: Some(note),
+                when: Some(when),
+                note: Some(format!(
+                    "Auto-added when the user approved `{name}` once and chose to remember"
+                )),
             },
         );
 
