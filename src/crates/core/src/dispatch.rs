@@ -36,7 +36,6 @@ pub mod method {
 /// Notifications the host pushes to connected clients.
 pub mod notification {
     pub const POLICY_CHANGED: &str = "bridge.policyChanged";
-    pub const SHUTTING_DOWN: &str = "bridge.shuttingDown";
     pub const CALL_STARTED: &str = "tools.callStarted";
     pub const CALL_FINISHED: &str = "tools.callFinished";
 }
@@ -64,14 +63,11 @@ pub trait Approver: Send + Sync {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalChallenge {
-    pub token: String,
     pub tool: String,
     pub arguments: Value,
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matched_rule: Option<String>,
-    /// Epoch milliseconds after which the challenge is void.
-    pub expires_at: u64,
 }
 
 /// A human's answer.
@@ -266,7 +262,6 @@ impl Dispatcher {
 
         let policy = self.policy.read().await;
         let approver = self.approver.read().await;
-        let transports = vec!["websocket"];
 
         Ok(json!({
             "protocolVersion": PROTOCOL_VERSION,
@@ -274,7 +269,7 @@ impl Dispatcher {
             "platform": std::env::consts::OS,
             "sessionId": uuid::Uuid::new_v4().to_string(),
             "capabilities": {
-                "transports": transports,
+                "transports": ["websocket"],
                 "availableTools": self.registry.names(),
                 "interactiveApproval": approver.is_interactive(),
                 "auditLog": self.audit.is_enabled(),
@@ -348,7 +343,7 @@ impl Dispatcher {
             "params": { "callId": call_id, "tool": name }
         }));
 
-        let (outcome, approved_via_human) = match verdict.effect {
+        let outcome = match verdict.effect {
             Effect::Deny => {
                 self.record(
                     &call_id,
@@ -371,7 +366,7 @@ impl Dispatcher {
                         if decision.remember {
                             self.remember_rule(&name, &arguments).await;
                         }
-                        (AuditOutcome::Approved, true)
+                        AuditOutcome::Approved
                     }
                     Some(_) => {
                         self.record(
@@ -412,9 +407,8 @@ impl Dispatcher {
                     }
                 }
             }
-            Effect::Allow => (AuditOutcome::Allowed, false),
+            Effect::Allow => AuditOutcome::Allowed,
         };
-        let _ = approved_via_human;
 
         // Step 4: execute. The policy guard must stay alive for the whole call,
         // because `ToolContext` borrows the engine that does path confinement.
@@ -531,14 +525,11 @@ impl Dispatcher {
             return None;
         }
 
-        let token = uuid::Uuid::new_v4().to_string();
         let challenge = ApprovalChallenge {
-            token: token.clone(),
             tool: name.to_string(),
             arguments: redact_arguments(arguments),
             reason: verdict.reason.clone(),
             matched_rule: verdict.matched_rule.clone(),
-            expires_at: now_epoch_millis() + APPROVAL_TTL.as_millis() as u64,
         };
 
         tokio::time::timeout(APPROVAL_TTL, approver.request(&challenge))
@@ -610,13 +601,6 @@ impl Dispatcher {
 /// Extracts the major component of a semantic version.
 fn major_of(version: &str) -> &str {
     version.split('.').next().unwrap_or(version)
-}
-
-fn now_epoch_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// Validates arguments against the JSON Schema subset the catalogue uses.

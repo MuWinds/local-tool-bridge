@@ -8,7 +8,7 @@
 //! with ordinary tools. It is capped by size, with the oldest entries dropped,
 //! so a long-running host cannot fill the disk.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
@@ -120,10 +120,6 @@ impl AuditLog {
         self.enabled
     }
 
-    pub fn path(&self) -> Option<&Path> {
-        self.path.as_deref()
-    }
-
     /// Records one entry, rotating the file first when it has grown too large.
     pub async fn record(&self, entry: AuditEntry) {
         if !self.enabled {
@@ -208,22 +204,6 @@ impl AuditLog {
         let ring = self.ring.lock().await;
         let skip = ring.len().saturating_sub(limit);
         ring.iter().skip(skip).cloned().collect()
-    }
-
-    /// Reads the on-disk log, newest first, for the GUI's history view.
-    pub async fn read_history(&self, limit: usize) -> Vec<AuditEntry> {
-        let Some(path) = &self.path else {
-            return self.recent(limit).await;
-        };
-        let Ok(content) = tokio::fs::read_to_string(path).await else {
-            return Vec::new();
-        };
-        content
-            .lines()
-            .rev()
-            .take(limit)
-            .filter_map(|line| serde_json::from_str::<AuditEntry>(line).ok())
-            .collect()
     }
 }
 

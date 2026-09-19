@@ -190,9 +190,6 @@ impl ToolRegistry {
             .map(|t| t.descriptor())
             .collect()
     }
-    pub fn all_descriptors(&self) -> Vec<ToolDescriptor> {
-        self.tools.values().map(|t| t.descriptor()).collect()
-    }
     pub fn names(&self) -> Vec<String> {
         self.descriptors().into_iter().map(|d| d.name).collect()
     }

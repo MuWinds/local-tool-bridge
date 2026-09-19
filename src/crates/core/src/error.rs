@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// `-32000..=-32099` is reserved by the specification for implementation-defined
 /// server errors, which is exactly where every bridge-specific failure lives.
+///
+/// Gaps in the numbering below are deliberate: a code that is retired keeps its
+/// integer reserved so a client branching on it cannot be surprised by reuse.
 pub mod code {
     pub const PARSE_ERROR: i64 = -32700;
     pub const INVALID_REQUEST: i64 = -32600;
@@ -16,18 +19,15 @@ pub mod code {
     pub const INVALID_PARAMS: i64 = -32602;
     pub const INTERNAL_ERROR: i64 = -32603;
 
-    pub const HOST_UNAVAILABLE: i64 = -32000;
     pub const NOT_AUTHENTICATED: i64 = -32001;
     pub const PROTOCOL_MISMATCH: i64 = -32002;
 
     pub const TOOL_NOT_FOUND: i64 = -32010;
     pub const TOOL_DENIED: i64 = -32011;
-    pub const APPROVAL_REQUIRED: i64 = -32012;
     pub const APPROVAL_TIMEOUT: i64 = -32013;
     pub const PATH_NOT_ALLOWED: i64 = -32014;
     pub const TOOL_TIMEOUT: i64 = -32016;
     pub const OUTPUT_TOO_LARGE: i64 = -32017;
-    pub const RATE_LIMITED: i64 = -32018;
 }
 
 /// A failure that carries a JSON-RPC code across the bridge.

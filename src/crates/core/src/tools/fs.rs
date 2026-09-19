@@ -12,7 +12,6 @@ use super::{
     optional_u64, required_str,
 };
 use crate::error::{BridgeError, Result};
-use crate::policy::path::lexical_normalize;
 
 /// Refuse files that are almost certainly not text, rather than returning
 /// megabytes of mojibake to the model.
@@ -645,9 +644,4 @@ impl Tool for Search {
             duration_ms: Some(started.elapsed().as_millis() as u64),
         })
     }
-}
-
-/// Exposed for the shell tool, which needs the same normalisation.
-pub fn normalize_for_display(path: &std::path::Path) -> String {
-    lexical_normalize(path).display().to_string()
 }

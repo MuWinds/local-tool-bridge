@@ -18,12 +18,6 @@ pub enum Effect {
     Deny,
 }
 
-impl Effect {
-    pub fn or_default(self, _default: Effect) -> Effect {
-        self
-    }
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Predicate {

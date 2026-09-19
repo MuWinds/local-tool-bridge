@@ -87,16 +87,6 @@ impl JsonRpcFailure {
     }
 }
 
-impl JsonRpcNotification {
-    pub fn new(method: impl Into<String>, params: Option<Value>) -> Self {
-        Self {
-            jsonrpc: JSONRPC_VERSION.to_string(),
-            method: method.into(),
-            params,
-        }
-    }
-}
-
 /// An inbound message, already classified by whether it expects a reply.
 #[derive(Debug, Clone)]
 pub enum Incoming {

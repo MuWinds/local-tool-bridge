@@ -97,14 +97,7 @@ impl ShellKind {
     }
 
     /// Builds the program and arguments for this backend.
-    ///
-    /// `distro` only selects a WSL distribution, so it is unused elsewhere.
-    #[cfg_attr(unix, allow(unused_variables))]
-    fn command_line(
-        self,
-        command: &str,
-        distro: Option<&str>,
-    ) -> Result<(&'static str, Vec<String>)> {
+    fn command_line(self, command: &str) -> Result<(&'static str, Vec<String>)> {
         match self {
             #[cfg(windows)]
             Self::PowerShell => Ok((
@@ -120,20 +113,10 @@ impl ShellKind {
             #[cfg(windows)]
             Self::GitBash => Ok(("bash.exe", vec!["-lc".into(), command.into()])),
             #[cfg(windows)]
-            Self::Wsl => {
-                let mut args = Vec::new();
-                if let Some(distro) = distro {
-                    if distro.trim().is_empty() {
-                        return Err(BridgeError::invalid_params(
-                            "`distro` must not be empty when provided",
-                        ));
-                    }
-                    args.push("-d".into());
-                    args.push(distro.into());
-                }
-                args.extend(["-e".into(), "bash".into(), "-lc".into(), command.into()]);
-                Ok(("wsl.exe", args))
-            }
+            Self::Wsl => Ok((
+                "wsl.exe",
+                vec!["-e".into(), "bash".into(), "-lc".into(), command.into()],
+            )),
             #[cfg(windows)]
             Self::Cmd => Ok(("cmd.exe", vec!["/C".into(), command.into()])),
             #[cfg(unix)]
@@ -197,7 +180,6 @@ impl Tool for Exec {
         }
 
         let shell = ShellKind::parse(Some(context.policy.default_shell()))?;
-        let distro: Option<String> = None;
 
         let cwd = match optional_str(&arguments, "cwd") {
             Some(raw) => Some(context.policy.sandbox().resolve(&raw, true)?),
@@ -210,7 +192,7 @@ impl Tool for Exec {
             600_000,
         );
 
-        let (program, args) = shell.command_line(&command, distro.as_deref())?;
+        let (program, args) = shell.command_line(&command)?;
         let mut process = tokio::process::Command::new(program);
         process
             .args(&args)
@@ -290,9 +272,6 @@ impl Tool for Exec {
         let exit_code = status.code();
         let mut body = String::new();
         body.push_str(&format!("[{}] $ {command}\n", shell.name()));
-        if let Some(distro) = &distro {
-            body.push_str(&format!("  (distro: {distro})\n"));
-        }
         if let Some(cwd) = &cwd {
             body.push_str(&format!("  (cwd: {})\n", cwd.display()));
         }
@@ -370,29 +349,27 @@ mod tests {
     #[test]
     #[cfg(windows)]
     fn builds_gitbash_command() {
-        let (program, args) = ShellKind::GitBash.command_line("git status", None).unwrap();
+        let (program, args) = ShellKind::GitBash.command_line("git status").unwrap();
         assert_eq!(program, "bash.exe");
         assert_eq!(args, vec!["-lc", "git status"]);
     }
 
     #[test]
     #[cfg(windows)]
-    fn builds_wsl_command_with_distro() {
-        let (program, args) = ShellKind::Wsl
-            .command_line("ls -la", Some("Ubuntu"))
-            .unwrap();
+    fn builds_wsl_command_with_the_default_distro() {
+        let (program, args) = ShellKind::Wsl.command_line("ls -la").unwrap();
         assert_eq!(program, "wsl.exe");
-        assert_eq!(args, vec!["-d", "Ubuntu", "-e", "bash", "-lc", "ls -la"]);
+        assert_eq!(args, vec!["-e", "bash", "-lc", "ls -la"]);
     }
 
     #[test]
     #[cfg(unix)]
     fn builds_unix_command_lines() {
-        let (program, args) = ShellKind::Sh.command_line("ls -la", None).unwrap();
+        let (program, args) = ShellKind::Sh.command_line("ls -la").unwrap();
         assert_eq!(program, "sh");
         assert_eq!(args, vec!["-lc", "ls -la"]);
 
-        let (program, args) = ShellKind::Fish.command_line("ls -la", None).unwrap();
+        let (program, args) = ShellKind::Fish.command_line("ls -la").unwrap();
         assert_eq!(program, "fish");
         assert_eq!(args, vec!["-lc", "ls -la"]);
     }
