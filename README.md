@@ -45,7 +45,7 @@ cd src && cargo build --release
 
 ### 第 3 步：接入 ChatGPT
 
-在「**安装 / MCP**」页：
+在「**MCP 设置**」页：
 
 1. 填 OpenAI 平台创建的 **Tunnel ID**；
 2. 粘贴 **Runtime API Key** 并点「保存 Tunnel API Key」；
@@ -81,7 +81,7 @@ cd src && cargo build --release
 
 每一次工具调用的流水账：时间、工具、结果（允许 / 已批准 / 已拒绝 / 用户拒绝 / 超时 / 失败）和参数。被拒绝的调用同样记录在案。
 
-### 安装 / MCP
+### MCP 设置
 
 **OpenAI Secure MCP Tunnel**：填入 Tunnel ID 和 Runtime API Key，勾选启用，控制面板会自动把本机 MCP 服务安全地接到 ChatGPT / Codex，无需额外安装任何东西。
 

@@ -16,16 +16,14 @@ pub fn draw(app: &mut BridgeApp, ctx: &egui::Context) {
                 (Tab::Status, "状态"),
                 (Tab::Tools, "工具与策略"),
                 (Tab::Audit, "审计日志"),
-                (Tab::Setup, "安装 / MCP"),
+                (Tab::Setup, "MCP 设置"),
             ] {
                 if ui.selectable_label(app.tab == tab, label).clicked() {
                     app.tab = tab;
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let running = app.http_address.is_some()
-                    || app.websocket_address.is_some()
-                    || app.mcp_address.is_some();
+                let running = app.mcp_address.is_some();
                 let (label, color) = if running {
                     ("● 运行中", Color32::from_rgb(26, 156, 98))
                 } else {
@@ -63,8 +61,6 @@ pub fn draw(app: &mut BridgeApp, ctx: &egui::Context) {
 }
 
 fn draw_direct_mcp_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
-    ui.add_space(16.0);
-    ui.separator();
     ui.heading("Direct Remote MCP");
     ui.label(
         RichText::new(
@@ -328,22 +324,6 @@ fn draw_status(app: &mut BridgeApp, ui: &mut egui::Ui) {
         .num_columns(2)
         .spacing([16.0, 6.0])
         .show(ui, |ui| {
-            ui.label("HTTP");
-            ui.label(
-                app.http_address
-                    .as_deref()
-                    .map(|a| format!("http://{a}/rpc"))
-                    .unwrap_or_else(|| "未启动".into()),
-            );
-            ui.end_row();
-            ui.label("WebSocket");
-            ui.label(
-                app.websocket_address
-                    .as_deref()
-                    .map(|a| format!("ws://{a}"))
-                    .unwrap_or_else(|| "未启动".into()),
-            );
-            ui.end_row();
             ui.label("MCP");
             ui.label(
                 app.mcp_address

@@ -30,12 +30,12 @@ ChatGPT
 ## 第 2 步：在控制面板里启用隧道
 
 1. 启动控制面板：`./src/target/release/ltb-gui`；
-2. 打开「**安装 / MCP**」页，找到 **OpenAI Secure MCP Tunnel** 区域；
+2. 打开「**MCP 设置**」页，找到 **OpenAI Secure MCP Tunnel** 区域；
 3. 在 **Tunnel ID** 一栏粘贴第 1 步记下的 Tunnel ID；
 4. 在 **Runtime API Key** 输入框粘贴第 1 步记下的 API Key，点「**保存 Tunnel API Key**」（密钥只写入本机文件，界面不显示已有值）；
 5. 勾选「**启动 GUI 时自动运行 Rust Tunnel**」，点「**保存 Tunnel 配置**」。
 
-回到「**状态**」页，**Secure MCP Tunnel** 一栏应显示「已运行」。如果显示「已启用但未运行」，检查 Tunnel ID / API Key 是否正确，或在「安装 / MCP」页调大「启动等待」（默认 60 秒）后重启控制面板。
+回到「**状态**」页，**Secure MCP Tunnel** 一栏应显示「已运行」。如果显示「已启用但未运行」，检查 Tunnel ID / API Key 是否正确，或在「MCP 设置」页调大「启动等待」（默认 60 秒）后重启控制面板。
 
 > 勾选启用后，每次启动控制面板都会自动运行隧道，无需重复配置。
 > 本机 MCP 地址（通常 `http://127.0.0.1:8790/mcp`）由控制面板自动管理，以「状态」页显示为准，无需手填。

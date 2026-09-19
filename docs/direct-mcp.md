@@ -147,7 +147,7 @@ x-dlb-secret 或 Direct Bearer Token。
 
 ## GUI 配置
 
-「安装 / MCP」→ Direct Remote MCP：
+「MCP 设置」→ Direct Remote MCP：
 
 1. 勾选「启动 GUI 时自动运行 Direct Remote MCP」；
 2. Bind 保持 127.0.0.1；
