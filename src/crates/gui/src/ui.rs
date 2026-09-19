@@ -3,7 +3,6 @@
 use crate::app::{BridgeApp, Tab};
 use eframe::egui::{self, Color32, RichText};
 use ltb_core::policy::Effect;
-use ltb_core::tools::DefaultEffect;
 
 pub fn draw(app: &mut BridgeApp, ctx: &egui::Context) {
     draw_approval_modal(app, ctx);
@@ -54,10 +53,7 @@ pub fn draw(app: &mut BridgeApp, ctx: &egui::Context) {
             Tab::Status => draw_status(app, ui),
             Tab::Tools => draw_tools(app, ui),
             Tab::Audit => draw_audit(app, ui),
-            Tab::Setup => {
-                draw_setup(app, ui);
-                draw_tunnel_setup(app, ui);
-            }
+            Tab::Setup => draw_tunnel_setup(app, ui),
         });
     });
 }
@@ -385,112 +381,6 @@ fn draw_audit(app: &mut BridgeApp, ui: &mut egui::Ui) {
                 ui.end_row();
             }
         });
-}
-
-fn draw_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
-    ui.heading("MCP 服务器");
-    ui.label(
-        RichText::new(
-            "在这里添加由 local-tool-bridge 启动的本地 stdio MCP Server。配置写入用户配置目录的 \
-             mcp.json。",
-        )
-        .weak(),
-    );
-    ui.add_space(8.0);
-    let names: Vec<String> = app.mcp_config.servers.keys().cloned().collect();
-    if names.is_empty() {
-        ui.label(RichText::new("暂无 MCP 服务器").weak());
-    }
-    for name in names {
-        let mut remove = false;
-        let mut changed = false;
-        if let Some(server) = app.mcp_config.servers.get_mut(&name) {
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(&name).strong());
-                    changed |= ui.checkbox(&mut server.enabled, "启用").changed();
-                    if ui.small_button("删除").clicked() {
-                        remove = true;
-                    }
-                });
-                ui.label(format!("{} {}", server.command, server.args.join(" ")));
-                if let Some(cwd) = &server.cwd {
-                    ui.label(RichText::new(format!("cwd: {cwd}")).weak().small());
-                }
-                egui::ComboBox::from_id_salt(format!("mcp-effect-{name}"))
-                    .selected_text(match server.default_effect {
-                        DefaultEffect::Allow => "默认允许",
-                        DefaultEffect::Ask => "默认需确认",
-                        DefaultEffect::Deny => "默认禁止",
-                    })
-                    .show_ui(ui, |ui| {
-                        changed |= ui
-                            .selectable_value(
-                                &mut server.default_effect,
-                                DefaultEffect::Allow,
-                                "默认允许",
-                            )
-                            .changed();
-                        changed |= ui
-                            .selectable_value(
-                                &mut server.default_effect,
-                                DefaultEffect::Ask,
-                                "默认需确认",
-                            )
-                            .changed();
-                        changed |= ui
-                            .selectable_value(
-                                &mut server.default_effect,
-                                DefaultEffect::Deny,
-                                "默认禁止",
-                            )
-                            .changed();
-                    });
-            });
-        }
-
-        if remove {
-            app.mcp_config.servers.remove(&name);
-        }
-    }
-    ui.add_space(8.0);
-    ui.separator();
-    ui.label(RichText::new("添加 MCP Server").strong());
-    egui::Grid::new("new-mcp")
-        .num_columns(2)
-        .spacing([10.0, 6.0])
-        .show(ui, |ui| {
-            ui.label("名称");
-            ui.text_edit_singleline(&mut app.new_mcp_name);
-            ui.end_row();
-            ui.label("Command");
-            ui.text_edit_singleline(&mut app.new_mcp_command);
-            ui.end_row();
-            ui.label("Arguments");
-            ui.text_edit_singleline(&mut app.new_mcp_args);
-            ui.end_row();
-            ui.label("工作目录");
-            ui.text_edit_singleline(&mut app.new_mcp_cwd);
-            ui.end_row();
-        });
-    if ui.button("添加服务器").clicked() {
-        app.add_mcp_server();
-    }
-    ui.horizontal(|ui| {
-        if ui.button("保存 mcp.json").clicked() {
-            app.save_mcp_config();
-        }
-        if ui.button("写入客户端 MCP 配置").clicked() {
-            app.export_client_mcp_config();
-        }
-    });
-    if let Some(path) = ltb_host::mcp_servers::config_path() {
-        ui.label(
-            RichText::new(format!("配置文件：{}", path.display()))
-                .monospace()
-                .small(),
-        );
-    }
 }
 
 fn draw_approval_modal(app: &mut BridgeApp, ctx: &egui::Context) {

@@ -12,7 +12,6 @@ use ltb_core::{Result, audit_path, policy_path};
 
 pub mod http;
 pub mod mcp;
-pub mod mcp_servers;
 pub mod tunnel;
 pub mod websocket;
 
@@ -98,8 +97,7 @@ fn restrict_permissions(_path: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Builds a dispatcher from the on-disk configuration. Enabled external stdio MCP
-/// servers are discovered here, before the dispatcher is shared with transports.
+/// Builds a dispatcher from the on-disk configuration.
 pub async fn build_dispatcher(
     policy_override: Option<PathBuf>,
     audit_enabled: bool,
@@ -111,9 +109,7 @@ pub async fn build_dispatcher(
         _ => AuditLog::open(PathBuf::new(), false).await?,
     };
 
-    let mut registry = ToolRegistry::with_builtins();
-    mcp_servers::load_into_registry(&mut registry).await;
-    let registry = Arc::new(registry);
+    let registry = Arc::new(ToolRegistry::with_builtins());
     let secret = load_or_create_secret().ok();
     Dispatcher::new(registry, engine, Arc::new(audit), secret)
 }

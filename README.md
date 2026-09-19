@@ -82,10 +82,7 @@ cd src && cargo build --release
 
 ### 安装 / MCP
 
-两件事：
-
-- **接入外部 MCP 服务器**：把本机已有的 MCP 服务器（如 filesystem server）添加进来，模型就能用它的工具，且同样受策略、审批和审计约束（见 [docs/mcp-servers.md](docs/mcp-servers.md)）；
-- **OpenAI Secure MCP Tunnel**：填入 Tunnel ID 和 Runtime API Key，勾选启用，控制面板会自动把本机 MCP 服务安全地接到 ChatGPT / Codex，无需额外安装任何东西。
+**OpenAI Secure MCP Tunnel**：填入 Tunnel ID 和 Runtime API Key，勾选启用，控制面板会自动把本机 MCP 服务安全地接到 ChatGPT / Codex，无需额外安装任何东西。
 
 ### 审批弹窗
 
@@ -145,7 +142,7 @@ cd src && cargo build --release
 - macOS：`~/Library/Application Support/local-tool-bridge/`
 - Linux：`~/.config/local-tool-bridge/`
 
-包括连接令牌（`secret`）、策略（`policy.json`）、审计日志（`audit.jsonl`）、MCP 服务器配置（`mcp.json`）、隧道配置（`tunnel.json`）等。
+包括连接令牌（`secret`）、策略（`policy.json`）、审计日志（`audit.jsonl`）、隧道配置（`tunnel.json`）等。
 
 ---
 
@@ -155,7 +152,7 @@ cd src && cargo build --release
 local-tool-bridge/
 ├── docs/
 │   ├── chatgpt-mcp.md           # 接入 ChatGPT / Codex 的完整指南
-│   └── mcp-servers.md           # 接入外部 MCP 服务器指南
+│   └── tunnel-client.chatgpt.yaml  # 无界面模式的 tunnel-client 配置样例
 ├── src/                         # Rust 工作区
 │   └── crates/
 │       ├── core/                # 策略引擎、路径沙箱、工具、审计

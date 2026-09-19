@@ -2,9 +2,7 @@ use crate::approver::PendingApproval;
 use ltb_core::audit::{AuditEntry, AuditLog};
 use ltb_core::dispatch::Dispatcher;
 use ltb_core::policy::{Effect, Policy, Rule};
-use ltb_host::mcp_servers::{McpConfig, McpServerConfig};
 use ltb_host::tunnel::{TunnelConfig, TunnelProcess};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,11 +32,6 @@ pub struct BridgeApp {
     pending_approvals: Vec<PendingApproval>,
     pub toast: Option<(String, bool)>,
     pub new_root: String,
-    pub mcp_config: McpConfig,
-    pub new_mcp_name: String,
-    pub new_mcp_command: String,
-    pub new_mcp_args: String,
-    pub new_mcp_cwd: String,
     pub tunnel_config: TunnelConfig,
     pub tunnel_process: Option<TunnelProcess>,
     pub tunnel_api_key: String,
@@ -72,11 +65,6 @@ impl BridgeApp {
             pending_approvals: Vec::new(),
             toast: None,
             new_root: String::new(),
-            mcp_config: ltb_host::mcp_servers::load_config(),
-            new_mcp_name: String::new(),
-            new_mcp_command: String::new(),
-            new_mcp_args: String::new(),
-            new_mcp_cwd: String::new(),
             tunnel_config,
             tunnel_process,
             tunnel_api_key: String::new(),
@@ -168,61 +156,6 @@ impl BridgeApp {
     }
     pub fn copy_secret(&self, ctx: &eframe::egui::Context) {
         ctx.copy_text(self.secret.clone());
-    }
-    pub fn add_mcp_server(&mut self) {
-        let name = self.new_mcp_name.trim().to_string();
-        let command = self.new_mcp_command.trim().to_string();
-        if name.is_empty() || command.is_empty() {
-            self.toast = Some(("MCP 服务器名称和启动命令不能为空".into(), false));
-            return;
-        }
-        let args = self
-            .new_mcp_args
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
-        self.mcp_config.servers.insert(
-            name,
-            McpServerConfig {
-                command,
-                args,
-                env: BTreeMap::new(),
-                cwd: if self.new_mcp_cwd.trim().is_empty() {
-                    None
-                } else {
-                    Some(self.new_mcp_cwd.trim().into())
-                },
-                enabled: true,
-                default_effect: ltb_core::tools::DefaultEffect::Ask,
-            },
-        );
-        self.new_mcp_name.clear();
-        self.new_mcp_command.clear();
-        self.new_mcp_args.clear();
-        self.new_mcp_cwd.clear();
-    }
-    pub fn save_mcp_config(&mut self) {
-        match ltb_host::mcp_servers::save_config(&self.mcp_config) {
-            Ok(path) => {
-                self.toast = Some((
-                    format!("MCP 配置已保存到 {}。重启桥接后生效。", path.display()),
-                    true,
-                ))
-            }
-            Err(e) => self.toast = Some((format!("保存 MCP 配置失败：{e}"), false)),
-        }
-    }
-    pub fn export_client_mcp_config(&mut self) {
-        let Some(address) = self.mcp_address.as_deref() else {
-            self.toast = Some(("MCP 服务尚未监听，无法生成客户端配置".into(), false));
-            return;
-        };
-        match ltb_host::mcp_servers::save_client_config(address, &self.secret) {
-            Ok(path) => {
-                self.toast = Some((format!("客户端 MCP 配置已写入 {}", path.display()), true))
-            }
-            Err(e) => self.toast = Some((format!("写入客户端 MCP 配置失败：{e}"), false)),
-        }
     }
     pub fn save_tunnel_config(&mut self) {
         match ltb_host::tunnel::save_config(&self.tunnel_config) {
