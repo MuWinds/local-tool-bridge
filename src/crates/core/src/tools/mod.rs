@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 pub mod codex;
 pub mod fs;
-pub mod http;
 pub mod shell;
 
 /// Category prefix that marks a descriptor as part of the client-facing set.
@@ -155,7 +154,6 @@ impl ToolRegistry {
         r.register(Arc::new(fs::ListDir));
         r.register(Arc::new(fs::Search));
         r.register(Arc::new(shell::Exec));
-        r.register(Arc::new(http::Request));
         r.register(Arc::new(codex::ReadFile));
         r.register(Arc::new(codex::ListDir));
         r.register(Arc::new(codex::Exec));

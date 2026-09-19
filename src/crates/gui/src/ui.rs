@@ -207,9 +207,6 @@ fn draw_status(app: &mut BridgeApp, ui: &mut egui::Ui) {
     } else {
         ui.label(format!("工作目录：{}", app.policy.roots.join("、")));
     }
-    if app.policy.allowed_hosts.is_empty() {
-        ui.label(RichText::new("⚠ 尚未设置 HTTP 白名单").color(Color32::from_rgb(217, 119, 6)));
-    }
 }
 
 fn draw_tools(app: &mut BridgeApp, ui: &mut egui::Ui) {
@@ -338,42 +335,6 @@ fn draw_tools(app: &mut BridgeApp, ui: &mut egui::Ui) {
         }
     });
     ui.add_space(12.0);
-    ui.separator();
-    ui.label(RichText::new("HTTP 白名单").strong());
-    let mut remove_host = None;
-    for (i, host) in app.policy.allowed_hosts.iter().enumerate() {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(host).monospace());
-            if ui.small_button("移除").clicked() {
-                remove_host = Some(i);
-            }
-        });
-    }
-    if let Some(i) = remove_host {
-        app.policy.allowed_hosts.remove(i);
-        app.dirty = true;
-    }
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut app.new_host)
-                .desired_width(360.0)
-                .hint_text("例如 api.github.com"),
-        );
-        if ui.button("添加").clicked() && !app.new_host.trim().is_empty() {
-            app.policy.allowed_hosts.push(app.new_host.trim().into());
-            app.new_host.clear();
-            app.dirty = true;
-        }
-    });
-    if ui
-        .checkbox(
-            &mut app.policy.allow_private_network,
-            "允许访问本机与局域网地址",
-        )
-        .changed()
-    {
-        app.dirty = true;
-    }
     if ui
         .add_enabled(app.dirty, egui::Button::new("保存策略"))
         .clicked()

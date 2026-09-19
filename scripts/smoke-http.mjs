@@ -43,8 +43,6 @@ writeFileSync(
         { tool: "exec", effect: "allow" },
       ],
       roots: [workspace],
-      allowedHosts: [],
-      allowPrivateNetwork: false,
       defaultTimeoutMs: 20000,
       maxOutputChars: 20000,
     },

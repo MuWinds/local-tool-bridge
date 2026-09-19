@@ -6,8 +6,6 @@
     { "tool": "exec", "effect": "allow", "note": "e2e test" }
   ],
   "roots": ["C:\\Users\\MuWinds\\Desktop\\dlb-test-workspace"],
-  "allowedHosts": [],
-  "allowPrivateNetwork": false,
   "defaultTimeoutMs": 30000,
   "maxOutputChars": 20000
 }

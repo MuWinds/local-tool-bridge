@@ -25,7 +25,6 @@ pub mod code {
     pub const APPROVAL_REQUIRED: i64 = -32012;
     pub const APPROVAL_TIMEOUT: i64 = -32013;
     pub const PATH_NOT_ALLOWED: i64 = -32014;
-    pub const HOST_NOT_ALLOWED: i64 = -32015;
     pub const TOOL_TIMEOUT: i64 = -32016;
     pub const OUTPUT_TOO_LARGE: i64 = -32017;
     pub const RATE_LIMITED: i64 = -32018;
@@ -78,10 +77,6 @@ impl BridgeError {
 
     pub fn path_not_allowed(message: impl Into<String>) -> Self {
         Self::new(code::PATH_NOT_ALLOWED, message)
-    }
-
-    pub fn host_not_allowed(message: impl Into<String>) -> Self {
-        Self::new(code::HOST_NOT_ALLOWED, message)
     }
 
     pub fn timeout(message: impl Into<String>) -> Self {

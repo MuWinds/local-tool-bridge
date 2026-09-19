@@ -1,6 +1,5 @@
 //! Policy evaluation and filesystem/network confinement.
 
-use globset::{Glob, GlobSet, GlobSetBuilder};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -29,15 +28,12 @@ impl Effect {
 #[serde(rename_all = "camelCase", default)]
 pub struct Predicate {
     pub path_within: Vec<String>,
-    pub host_in: Vec<String>,
     pub command_not_matches: Vec<String>,
 }
 
 impl Predicate {
     pub fn is_empty(&self) -> bool {
-        self.path_within.is_empty()
-            && self.host_in.is_empty()
-            && self.command_not_matches.is_empty()
+        self.path_within.is_empty() && self.command_not_matches.is_empty()
     }
 }
 
@@ -85,10 +81,6 @@ pub struct Policy {
     pub rules: Vec<Rule>,
     #[serde(default)]
     pub roots: Vec<String>,
-    #[serde(default)]
-    pub allowed_hosts: Vec<String>,
-    #[serde(default)]
-    pub allow_private_network: bool,
     #[serde(default = "default_timeout")]
     pub default_timeout_ms: u64,
     #[serde(default = "default_max_output")]
@@ -149,12 +141,6 @@ impl Default for Policy {
                     note: None,
                 },
                 Rule {
-                    tool: "http.request".into(),
-                    effect: Effect::Ask,
-                    when: None,
-                    note: None,
-                },
-                Rule {
                     tool: "read_file".into(),
                     effect: Effect::Ask,
                     when: None,
@@ -186,8 +172,6 @@ impl Default for Policy {
                 },
             ],
             roots: Vec::new(),
-            allowed_hosts: Vec::new(),
-            allow_private_network: false,
             default_timeout_ms: default_timeout(),
             max_output_chars: default_max_output(),
             default_shell: default_shell(),
@@ -219,22 +203,12 @@ const DESTRUCTIVE_PATTERNS: &[(&str, &str)] = &[
 pub struct PolicyEngine {
     policy: Policy,
     sandbox: Sandbox,
-    allowed_hosts: GlobSet,
     destructive: Vec<(Regex, &'static str)>,
 }
 
 impl PolicyEngine {
     pub fn new(policy: Policy) -> Result<Self> {
         let sandbox = Sandbox::new(policy.roots.iter().map(std::path::PathBuf::from));
-        let mut builder = GlobSetBuilder::new();
-        for host in &policy.allowed_hosts {
-            builder.add(Glob::new(host).map_err(|e| {
-                BridgeError::invalid_params(format!("Invalid host glob `{host}`: {e}"))
-            })?);
-        }
-        let allowed_hosts = builder
-            .build()
-            .map_err(|e| BridgeError::invalid_params(format!("Invalid host allowlist: {e}")))?;
         let destructive = DESTRUCTIVE_PATTERNS
             .iter()
             .map(|(pattern, name)| {
@@ -247,7 +221,6 @@ impl PolicyEngine {
         Ok(Self {
             policy,
             sandbox,
-            allowed_hosts,
             destructive,
         })
     }
@@ -260,12 +233,6 @@ impl PolicyEngine {
     }
     pub fn roots(&self) -> &[String] {
         &self.policy.roots
-    }
-    pub fn allowed_hosts(&self) -> &[String] {
-        &self.policy.allowed_hosts
-    }
-    pub fn allow_private_network(&self) -> bool {
-        self.policy.allow_private_network
     }
     pub fn default_timeout_ms(&self) -> u64 {
         self.policy.default_timeout_ms
@@ -316,18 +283,6 @@ impl PolicyEngine {
                         continue;
                     }
                 }
-                if !predicate.host_in.is_empty() {
-                    let Some(host) = args.get("url").and_then(serde_json::Value::as_str) else {
-                        continue;
-                    };
-                    if !predicate
-                        .host_in
-                        .iter()
-                        .any(|allowed| host.contains(allowed))
-                    {
-                        continue;
-                    }
-                }
                 if !predicate.command_not_matches.is_empty()
                     && predicate.command_not_matches.iter().any(|pattern| {
                         Regex::new(pattern)
@@ -354,46 +309,4 @@ impl PolicyEngine {
             matched_rule: None,
         }
     }
-
-    pub fn host_allowed(&self, host: &str) -> bool {
-        self.allowed_hosts.is_match(host)
-    }
-}
-
-/// Returns true for loopback, private, link-local, unspecified, multicast,
-/// and local-domain targets. DNS resolution is deliberately not performed here;
-/// this is a syntactic safety gate before the HTTP client connects.
-pub fn is_private_host(host: &str) -> bool {
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    if host == "localhost" || host.ends_with(".local") {
-        return true;
-    }
-
-    let Ok(ip) = host.parse::<std::net::IpAddr>() else {
-        return false;
-    };
-
-    match ip {
-        std::net::IpAddr::V4(ip) => {
-            ip.is_loopback()
-                || ip.is_private()
-                || ip.is_link_local()
-                || ip.is_unspecified()
-                || ip.is_multicast()
-        }
-        std::net::IpAddr::V6(ip) => {
-            ip.is_loopback()
-                || ip.is_unspecified()
-                || ip.is_multicast()
-                || (ip.segments()[0] & 0xfe00) == 0xfc00
-                || (ip.segments()[0] & 0xffc0) == 0xfe80
-        }
-    }
-}
-
-/// Match a hostname against the same glob syntax used by the policy allowlist.
-pub fn host_matches(pattern: &str, host: &str) -> bool {
-    Glob::new(pattern)
-        .map(|glob| glob.compile_matcher().is_match(host))
-        .unwrap_or(false)
 }

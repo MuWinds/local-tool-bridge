@@ -554,24 +554,14 @@ impl Dispatcher {
 
         // A filesystem call is remembered for the directory it touched, not for
         // the whole filesystem: approving one file must not open the rest.
-        let when = if let Some(path) = arguments.get("path").and_then(Value::as_str) {
-            std::path::Path::new(path)
-                .parent()
-                .map(|parent| crate::policy::Predicate {
-                    path_within: vec![parent.display().to_string()],
-                    ..Default::default()
-                })
-        } else if let Some(url) = arguments.get("url").and_then(Value::as_str) {
-            url::Url::parse(url)
-                .ok()
-                .and_then(|parsed| parsed.host_str().map(str::to_string))
-                .map(|host| crate::policy::Predicate {
-                    host_in: vec![host],
-                    ..Default::default()
-                })
-        } else {
-            None
-        };
+        let when = arguments
+            .get("path")
+            .and_then(Value::as_str)
+            .and_then(|path| std::path::Path::new(path).parent())
+            .map(|parent| crate::policy::Predicate {
+                path_within: vec![parent.display().to_string()],
+                ..Default::default()
+            });
 
         policy.rules.insert(
             0,
