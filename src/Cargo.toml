@@ -33,6 +33,7 @@ tokio-tungstenite = { version = "0.26", default-features = false, features = ["h
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tray-icon = "0.19"
+url = "2"
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 

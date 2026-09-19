@@ -4,6 +4,7 @@
 
 - **控制面板（ltb-gui）**：原生桌面窗口，启动即用。授权、策略、审计、接入 ChatGPT 都在这里完成。
 - **内置服务与隧道**：MCP / HTTP / WebSocket 端点与 ChatGPT 安全隧道全部内置，无需另装任何客户端程序。
+- **可选 Direct Remote MCP**：保留 Tunnel 默认路径；公网模式可选 Static Bearer、OAuth 2.1 + PKCE，或高熵 Secret Path（No Auth），并可配合 Caddy 提供 HTTPS。
 
 ---
 
@@ -51,7 +52,7 @@ cd src && cargo build --release
 3. 勾选「启动 GUI 时自动运行 Rust Tunnel」并点「保存 Tunnel 配置」；
 4. 在 ChatGPT 设置里新建 Connector，选择你的 Tunnel、扫描工具，即可开始使用。
 
-详细步骤见 [让 ChatGPT 使用 Local Tool Bridge](docs/chatgpt-mcp.md)。
+详细步骤见 [让 ChatGPT 使用 Local Tool Bridge](docs/chatgpt-mcp.md)。有公网 IP / 域名并希望绕过 Tunnel 的用户，可看 [Direct Remote MCP 与 Caddy](docs/direct-mcp.md)。
 
 ---
 
@@ -118,6 +119,7 @@ cd src && cargo build --release
 - **路径沙箱**：模型只能访问你添加的工作目录，`..`、符号链接都绕不出去；`.ssh`、`.env`、密钥文件即使在工作目录里也读不到；
 - **命令黑名单**：`rm -rf`、磁盘格式化这类破坏性命令优先级最高，任何规则都放行不了；
 - **令牌保护**：本机服务只监听 `127.0.0.1`，每个请求都校验共享令牌（连接令牌），请像保管密码一样保管它。
+- **公网认证隔离**：Direct Remote MCP 与 Tunnel/本地 bridge secret 分离，可选独立 Bearer、OAuth 2.1 + PKCE，或把 256-bit Secret Path 本身作为 capability credential。
 
 > **注意**：`exec` / `unified_exec` 是真实的命令 Shell，模型可以通过它发起网络请求（例如 `curl`）。桥接不对 Shell 的出站流量做主机白名单或私网拦截，请在审批时留意命令内容。
 
@@ -129,6 +131,8 @@ cd src && cargo build --release
 
 ```bash
 ./src/target/release/ltb-host serve-mcp        # MCP，默认 http://127.0.0.1:8789/mcp
+# Direct/反代模式：需显式提供 Bearer token 文件
+./src/target/release/ltb-host serve-mcp --mcp-bind 127.0.0.1 --mcp-port 8792 --mcp-bearer-token-file /path/to/token
 ./src/target/release/ltb-host serve            # HTTP，默认 http://127.0.0.1:8788/rpc
 ./src/target/release/ltb-host serve-ws         # WebSocket
 ./src/target/release/ltb-host --print-secret   # 只打印连接令牌
@@ -142,7 +146,7 @@ cd src && cargo build --release
 - macOS：`~/Library/Application Support/local-tool-bridge/`
 - Linux：`~/.config/local-tool-bridge/`
 
-包括连接令牌（`secret`）、策略（`policy.json`）、审计日志（`audit.jsonl`）、隧道配置（`tunnel.json`）等。
+包括连接令牌（`secret`）、策略（`policy.json`）、审计日志（`audit.jsonl`）、Direct MCP 配置与凭据（`direct-mcp*.json` / `direct-mcp-*`）、隧道配置（`tunnel.json`）等。
 
 ---
 

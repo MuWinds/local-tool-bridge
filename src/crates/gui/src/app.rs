@@ -2,6 +2,7 @@ use crate::approver::PendingApproval;
 use ltb_core::audit::{AuditEntry, AuditLog};
 use ltb_core::dispatch::Dispatcher;
 use ltb_core::policy::{Effect, Policy, Rule};
+use ltb_host::direct_mcp::DirectMcpConfig;
 use ltb_host::tunnel::{TunnelConfig, TunnelProcess};
 use std::sync::Arc;
 
@@ -16,6 +17,18 @@ pub struct ActiveApproval {
     pub challenge: ltb_core::dispatch::ApprovalChallenge,
     pub responder: Option<tokio::sync::oneshot::Sender<ltb_core::dispatch::ApprovalDecision>>,
 }
+
+pub struct BridgeAppInit {
+    pub runtime: tokio::runtime::Handle,
+    pub dispatcher: Arc<Dispatcher>,
+    pub secret: String,
+    pub http_address: Option<String>,
+    pub websocket_address: Option<String>,
+    pub mcp_address: Option<String>,
+    pub direct_mcp_address: Option<String>,
+    pub direct_mcp_config: DirectMcpConfig,
+    pub tunnel_process: Option<TunnelProcess>,
+}
 pub struct BridgeApp {
     pub runtime: tokio::runtime::Handle,
     pub dispatcher: Arc<Dispatcher>,
@@ -24,6 +37,8 @@ pub struct BridgeApp {
     pub http_address: Option<String>,
     pub websocket_address: Option<String>,
     pub mcp_address: Option<String>,
+    pub direct_mcp_address: Option<String>,
+    pub direct_mcp_config: DirectMcpConfig,
     pub secret: String,
     pub policy: Policy,
     pub dirty: bool,
@@ -37,27 +52,21 @@ pub struct BridgeApp {
     pub tunnel_api_key: String,
 }
 impl BridgeApp {
-    pub fn new(
-        runtime: tokio::runtime::Handle,
-        dispatcher: Arc<Dispatcher>,
-        secret: String,
-        http_address: Option<String>,
-        websocket_address: Option<String>,
-        mcp_address: Option<String>,
-        tunnel_process: Option<TunnelProcess>,
-    ) -> Self {
-        let audit = dispatcher.audit().clone();
-        let policy = runtime.block_on(dispatcher.policy_snapshot());
+    pub fn new(init: BridgeAppInit) -> Self {
+        let audit = init.dispatcher.audit().clone();
+        let policy = init.runtime.block_on(init.dispatcher.policy_snapshot());
         let tunnel_config = ltb_host::tunnel::load_config();
         Self {
-            runtime,
-            dispatcher,
+            runtime: init.runtime,
+            dispatcher: init.dispatcher,
             audit,
             tab: Tab::Status,
-            http_address,
-            websocket_address,
-            mcp_address,
-            secret,
+            http_address: init.http_address,
+            websocket_address: init.websocket_address,
+            mcp_address: init.mcp_address,
+            direct_mcp_address: init.direct_mcp_address,
+            direct_mcp_config: init.direct_mcp_config,
+            secret: init.secret,
             policy,
             dirty: false,
             audit_entries: Vec::new(),
@@ -66,7 +75,7 @@ impl BridgeApp {
             toast: None,
             new_root: String::new(),
             tunnel_config,
-            tunnel_process,
+            tunnel_process: init.tunnel_process,
             tunnel_api_key: String::new(),
         }
     }
@@ -157,6 +166,105 @@ impl BridgeApp {
     pub fn copy_secret(&self, ctx: &eframe::egui::Context) {
         ctx.copy_text(self.secret.clone());
     }
+    pub fn save_direct_mcp_config(&mut self) {
+        match ltb_host::direct_mcp::save_config(&self.direct_mcp_config) {
+            Ok(path) => {
+                self.toast = Some((
+                    format!(
+                        "Direct MCP 配置已保存到 {}。监听地址/认证变更将在重启后生效。",
+                        path.display()
+                    ),
+                    true,
+                ))
+            }
+            Err(e) => self.toast = Some((format!("保存 Direct MCP 配置失败：{e}"), false)),
+        }
+    }
+
+    pub fn copy_direct_mcp_token(&mut self, ctx: &eframe::egui::Context) {
+        match ltb_host::direct_mcp::load_or_create_token(&self.direct_mcp_config) {
+            Ok(token) => {
+                ctx.copy_text(token);
+                self.toast = Some(("Direct MCP Bearer Token 已复制".into(), true));
+            }
+            Err(e) => self.toast = Some((format!("读取 Direct MCP Token 失败：{e}"), false)),
+        }
+    }
+
+    pub fn copy_direct_mcp_endpoint(&mut self, ctx: &eframe::egui::Context) {
+        match ltb_host::direct_mcp::public_mcp_url(&self.direct_mcp_config) {
+            Ok(url) => {
+                ctx.copy_text(url);
+                self.toast = Some(("Direct MCP 公网 URL 已复制".into(), true));
+            }
+            Err(e) => self.toast = Some((format!("生成 Direct MCP URL 失败：{e}"), false)),
+        }
+    }
+
+    pub fn rotate_direct_mcp_path(&mut self, ctx: &eframe::egui::Context) {
+        match ltb_host::direct_mcp::rotate_path_token() {
+            Ok(_) => match ltb_host::direct_mcp::public_mcp_url(&self.direct_mcp_config) {
+                Ok(url) => {
+                    ctx.copy_text(url);
+                    self.toast = Some((
+                        "已重新生成 Secret Path；新 URL 已复制，重启后生效".into(),
+                        true,
+                    ));
+                }
+                Err(e) => self.toast = Some((format!("生成新 Secret Path URL 失败：{e}"), false)),
+            },
+            Err(e) => self.toast = Some((format!("重新生成 Secret Path 失败：{e}"), false)),
+        }
+    }
+
+    pub fn copy_oauth_client_id(&mut self, ctx: &eframe::egui::Context) {
+        match ltb_host::direct_mcp::load_or_create_oauth_credentials() {
+            Ok(credentials) => {
+                ctx.copy_text(credentials.client_id);
+                self.toast = Some(("OAuth Client ID 已复制".into(), true));
+            }
+            Err(e) => self.toast = Some((format!("读取 OAuth Client ID 失败：{e}"), false)),
+        }
+    }
+
+    pub fn copy_oauth_client_secret(&mut self, ctx: &eframe::egui::Context) {
+        match ltb_host::direct_mcp::load_or_create_oauth_credentials() {
+            Ok(credentials) => {
+                ctx.copy_text(credentials.client_secret);
+                self.toast = Some(("OAuth Client Secret 已复制".into(), true));
+            }
+            Err(e) => self.toast = Some((format!("读取 OAuth Client Secret 失败：{e}"), false)),
+        }
+    }
+
+    pub fn copy_oauth_setup(&mut self, ctx: &eframe::egui::Context) {
+        let credentials = match ltb_host::direct_mcp::load_or_create_oauth_credentials() {
+            Ok(credentials) => credentials,
+            Err(e) => {
+                self.toast = Some((format!("读取 OAuth 凭据失败：{e}"), false));
+                return;
+            }
+        };
+        let endpoints = match ltb_host::direct_mcp::oauth_endpoint_lines(&self.direct_mcp_config) {
+            Ok(endpoints) => endpoints,
+            Err(e) => {
+                self.toast = Some((format!("生成 OAuth 配置失败：{e}"), false));
+                return;
+            }
+        };
+        let mut text = String::new();
+        for (name, value) in endpoints {
+            text.push_str(&format!("{name}: {value}\n"));
+        }
+        text.push_str(&format!("Client ID: {}\n", credentials.client_id));
+        text.push_str(&format!("Client Secret: {}\n", credentials.client_secret));
+        text.push_str("Token endpoint auth: client_secret_post (client_secret_basic 也支持)\n");
+        text.push_str("Scopes: mcp offline_access\n");
+        text.push_str("Registration URL: 留空（使用用户自定义 OAuth 客户端）\n");
+        ctx.copy_text(text);
+        self.toast = Some(("完整 OAuth 配置已复制".into(), true));
+    }
+
     pub fn save_tunnel_config(&mut self) {
         match ltb_host::tunnel::save_config(&self.tunnel_config) {
             Ok(path) => {

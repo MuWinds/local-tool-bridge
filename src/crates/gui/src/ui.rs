@@ -3,6 +3,7 @@
 use crate::app::{BridgeApp, Tab};
 use eframe::egui::{self, Color32, RichText};
 use ltb_core::policy::Effect;
+use ltb_host::direct_mcp::DirectAuthMode;
 
 pub fn draw(app: &mut BridgeApp, ctx: &egui::Context) {
     draw_approval_modal(app, ctx);
@@ -53,9 +54,202 @@ pub fn draw(app: &mut BridgeApp, ctx: &egui::Context) {
             Tab::Status => draw_status(app, ui),
             Tab::Tools => draw_tools(app, ui),
             Tab::Audit => draw_audit(app, ui),
-            Tab::Setup => draw_tunnel_setup(app, ui),
+            Tab::Setup => {
+                draw_direct_mcp_setup(app, ui);
+                draw_tunnel_setup(app, ui);
+            }
         });
     });
+}
+
+fn draw_direct_mcp_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
+    ui.add_space(16.0);
+    ui.separator();
+    ui.heading("Direct Remote MCP");
+    ui.label(
+        RichText::new(
+            "可选公网入口。推荐继续让 Caddy 负责 HTTPS，LTB 只监听 127.0.0.1。\
+             Direct 模式现在支持静态 Bearer、OAuth，以及随机 Secret Path（No Auth）。",
+        )
+        .weak(),
+    );
+    ui.checkbox(
+        &mut app.direct_mcp_config.enabled,
+        "启动 GUI 时自动运行 Direct Remote MCP",
+    );
+
+    egui::Grid::new("direct-mcp-common")
+        .num_columns(2)
+        .spacing([10.0, 6.0])
+        .show(ui, |ui| {
+            ui.label("Bind");
+            ui.text_edit_singleline(&mut app.direct_mcp_config.bind);
+            ui.end_row();
+
+            ui.label("Port");
+            ui.add(egui::DragValue::new(&mut app.direct_mcp_config.port).range(1..=u16::MAX));
+            ui.end_row();
+
+            ui.label("Public URL");
+            ui.text_edit_singleline(&mut app.direct_mcp_config.public_base_url);
+            ui.end_row();
+
+            ui.label("认证模式");
+            egui::ComboBox::from_id_salt("direct-mcp-auth-mode")
+                .selected_text(match app.direct_mcp_config.auth_mode {
+                    DirectAuthMode::StaticBearer => "Static Bearer",
+                    DirectAuthMode::OAuth => "OAuth 2.1 + PKCE",
+                    DirectAuthMode::SecretPath => "Secret Path (No Auth)",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut app.direct_mcp_config.auth_mode,
+                        DirectAuthMode::StaticBearer,
+                        "Static Bearer",
+                    );
+                    ui.selectable_value(
+                        &mut app.direct_mcp_config.auth_mode,
+                        DirectAuthMode::OAuth,
+                        "OAuth 2.1 + PKCE",
+                    );
+                    ui.selectable_value(
+                        &mut app.direct_mcp_config.auth_mode,
+                        DirectAuthMode::SecretPath,
+                        "Secret Path (No Auth)",
+                    );
+                });
+            ui.end_row();
+        });
+
+    ui.add_space(8.0);
+    match app.direct_mcp_config.auth_mode {
+        DirectAuthMode::StaticBearer => {
+            ui.label(RichText::new("Static Bearer").strong());
+            ui.label(
+                RichText::new(
+                    "兼容原 Direct MCP：客户端发送 Authorization: Bearer <token>。\
+                     适合 curl 和支持静态 Token 的 MCP 客户端。",
+                )
+                .weak()
+                .small(),
+            );
+            ui.label(format!(
+                "Bearer Token 文件：{}",
+                ltb_host::direct_mcp::token_path(&app.direct_mcp_config)
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "不可用".into())
+            ));
+            ui.horizontal(|ui| {
+                if ui.button("复制 Bearer Token").clicked() {
+                    app.copy_direct_mcp_token(ui.ctx());
+                }
+                if ui.button("复制公网 MCP URL").clicked() {
+                    app.copy_direct_mcp_endpoint(ui.ctx());
+                }
+            });
+        }
+        DirectAuthMode::SecretPath => {
+            ui.label(RichText::new("Secret Path / No Auth").strong());
+            ui.label(
+                RichText::new(
+                    "URL 本身就是凭据，例如 /mcp/<随机 256-bit token>。比公开 /mcp 无认证安全得多，\
+                     但弱于 OAuth/Bearer：URL 一旦出现在日志、截图或历史记录里就等于凭据泄漏。",
+                )
+                .color(Color32::from_rgb(217, 119, 6))
+                .small(),
+            );
+            if let Ok(url) = ltb_host::direct_mcp::public_mcp_url(&app.direct_mcp_config) {
+                ui.label(RichText::new(url).monospace().small());
+            }
+            ui.horizontal(|ui| {
+                if ui.button("复制 Secret MCP URL").clicked() {
+                    app.copy_direct_mcp_endpoint(ui.ctx());
+                }
+                if ui.button("重新生成 Secret Path").clicked() {
+                    app.rotate_direct_mcp_path(ui.ctx());
+                }
+            });
+            ui.label(
+                RichText::new("在 ChatGPT 中把身份验证选择为 No Authentication。")
+                    .weak()
+                    .small(),
+            );
+        }
+        DirectAuthMode::OAuth => {
+            ui.label(RichText::new("OAuth 2.1 / Authorization Code + PKCE").strong());
+            ui.label(
+                RichText::new(
+                    "用于 ChatGPT 的用户自定义 OAuth 客户端。支持 S256 PKCE、client_secret_post/basic、\
+                     access token 与 30 天 refresh token（offline_access）。授权页面会要求你在浏览器点击允许。",
+                )
+                .weak()
+                .small(),
+            );
+            ui.horizontal(|ui| {
+                ui.label("ChatGPT 回调 URL");
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.direct_mcp_config.oauth_redirect_uri)
+                        .desired_width(520.0),
+                );
+            });
+
+            if let Ok(credentials) = ltb_host::direct_mcp::load_or_create_oauth_credentials() {
+                ui.label(
+                    RichText::new(format!("Client ID: {}", credentials.client_id))
+                        .monospace()
+                        .small(),
+                );
+            }
+            if let Ok(lines) = ltb_host::direct_mcp::oauth_endpoint_lines(&app.direct_mcp_config) {
+                egui::Grid::new("direct-oauth-endpoints")
+                    .num_columns(2)
+                    .striped(true)
+                    .spacing([10.0, 4.0])
+                    .show(ui, |ui| {
+                        for (name, value) in lines {
+                            ui.label(RichText::new(name).small());
+                            ui.label(RichText::new(value).monospace().small());
+                            ui.end_row();
+                        }
+                    });
+            }
+            ui.label(
+                RichText::new("Scopes: mcp offline_access")
+                    .monospace()
+                    .small(),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("复制 Client ID").clicked() {
+                    app.copy_oauth_client_id(ui.ctx());
+                }
+                if ui.button("复制 Client Secret").clicked() {
+                    app.copy_oauth_client_secret(ui.ctx());
+                }
+                if ui.button("复制完整 OAuth 配置").clicked() {
+                    app.copy_oauth_setup(ui.ctx());
+                }
+            });
+        }
+    }
+
+    ui.add_space(6.0);
+    ui.label(
+        RichText::new(
+            "配置变更后请保存并重启控制面板。公网推荐只开放 Caddy 端口，不要直接开放 8792。",
+        )
+        .weak()
+        .small(),
+    );
+    if ui.button("保存 Direct MCP 配置").clicked() {
+        app.save_direct_mcp_config();
+    }
+    if let Some(path) = ltb_host::direct_mcp::config_path() {
+        ui.label(
+            RichText::new(format!("Direct MCP 配置：{}", path.display()))
+                .monospace()
+                .small(),
+        );
+    }
 }
 
 fn draw_tunnel_setup(app: &mut BridgeApp, ui: &mut egui::Ui) {
@@ -157,6 +351,15 @@ fn draw_status(app: &mut BridgeApp, ui: &mut egui::Ui) {
                     .map(|a| format!("http://{a}/mcp"))
                     .unwrap_or_else(|| "未启动".into()),
             );
+            ui.end_row();
+            ui.label("Direct Remote MCP");
+            ui.label(if let Some(address) = app.direct_mcp_address.as_deref() {
+                format!("已运行 · {address}")
+            } else if app.direct_mcp_config.enabled {
+                "已启用但未运行".into()
+            } else {
+                "未启用".into()
+            });
             ui.end_row();
             ui.label("Secure MCP Tunnel");
             ui.label(if app.tunnel_process.is_some() {

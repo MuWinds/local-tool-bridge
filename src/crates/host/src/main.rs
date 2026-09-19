@@ -3,6 +3,7 @@
 //! All real logic lives in the `ltb_host` library so the GUI can embed it; this
 //! file only parses arguments and wires the chosen mode together.
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -21,9 +22,17 @@ struct Cli {
     #[arg(long, default_value_t = 8788, global = true)]
     port: u16,
 
-    /// Port for the loopback MCP transport. 0 picks a free port.
+    /// Port for the MCP transport. 0 picks a free port.
     #[arg(long, default_value_t = 8789, global = true)]
     mcp_port: u16,
+
+    /// Address for `serve-mcp`. The default preserves loopback-only behavior.
+    #[arg(long, default_value = "127.0.0.1", global = true)]
+    mcp_bind: IpAddr,
+
+    /// Static Bearer token file for Direct Remote MCP.
+    #[arg(long, global = true)]
+    mcp_bearer_token_file: Option<PathBuf>,
 
     /// Path to the policy document. Defaults to the per-user config directory.
     #[arg(long, global = true)]
@@ -114,7 +123,38 @@ async fn main() -> std::process::ExitCode {
             let serve_mcp = matches!(command, Command::ServeMcp);
 
             let address = if serve_mcp {
-                run_mcp(cli.mcp_port, dispatcher, secret.clone()).await
+                let default_loopback = cli.mcp_bind == IpAddr::V4(Ipv4Addr::LOCALHOST)
+                    && cli.mcp_bearer_token_file.is_none();
+                if default_loopback {
+                    run_mcp(cli.mcp_port, dispatcher, secret.clone()).await
+                } else {
+                    let Some(token_file) = cli.mcp_bearer_token_file.as_ref() else {
+                        eprintln!(
+                            "--mcp-bearer-token-file is required when Direct Remote MCP is requested"
+                        );
+                        return std::process::ExitCode::FAILURE;
+                    };
+                    let token = match std::fs::read_to_string(token_file) {
+                        Ok(token) if !token.trim().is_empty() => token.trim().to_string(),
+                        Ok(_) => {
+                            eprintln!("MCP bearer token file is empty: {}", token_file.display());
+                            return std::process::ExitCode::FAILURE;
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "failed to read MCP bearer token file {}: {error}",
+                                token_file.display()
+                            );
+                            return std::process::ExitCode::FAILURE;
+                        }
+                    };
+                    ltb_host::run_direct_mcp(
+                        SocketAddr::new(cli.mcp_bind, cli.mcp_port),
+                        dispatcher,
+                        token,
+                    )
+                    .await
+                }
             } else if serve_websocket {
                 run_websocket(cli.port, dispatcher, secret.clone()).await
             } else {
@@ -124,10 +164,8 @@ async fn main() -> std::process::ExitCode {
             let address = match address {
                 Ok(address) => address,
                 Err(error) => {
-                    eprintln!(
-                        "failed to bind the loopback socket on port {}: {error}",
-                        cli.port
-                    );
+                    let port = if serve_mcp { cli.mcp_port } else { cli.port };
+                    eprintln!("failed to bind the selected transport on port {port}: {error}");
                     return std::process::ExitCode::FAILURE;
                 }
             };
@@ -141,7 +179,11 @@ async fn main() -> std::process::ExitCode {
             } else {
                 println!("ltb-host listening on http://{address}/rpc");
             }
-            println!("bridge secret: {secret}");
+            if serve_mcp && cli.mcp_bearer_token_file.is_some() {
+                println!("MCP authentication: static Bearer token");
+            } else {
+                println!("bridge secret: {secret}");
+            }
             println!("press Ctrl+C to stop");
 
             if let Err(error) = tokio::signal::ctrl_c().await {

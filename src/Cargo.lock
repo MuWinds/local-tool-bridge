@@ -2471,6 +2471,7 @@ dependencies = [
  "ltb-core",
  "rand 0.8.8",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -2478,6 +2479,7 @@ dependencies = [
  "tokio-tungstenite",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
