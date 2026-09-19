@@ -321,6 +321,14 @@ impl Dispatcher {
             .map(str::to_string);
 
         let started = Instant::now();
+
+        // A tool that is registered but withheld from clients must be as
+        // invisible here as it is in `tools.list`; otherwise its name is a
+        // bypass around the exposed surface.
+        if !self.registry.is_exposed(&name) {
+            return Err(BridgeError::tool_not_found(&name));
+        }
+
         let tool = self.registry.require(&name)?;
         let descriptor = tool.descriptor();
 

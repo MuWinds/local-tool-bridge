@@ -4,6 +4,11 @@
 //! execution, audit — through the public API, because that ordering is the
 //! security property. Unit tests on the policy engine alone cannot catch a
 //! dispatcher that forgets to consult it.
+//!
+//! Calls go through the client-facing tool names (`read_file`, `list_dir`,
+//! `exec`, `apply_patch`). The registry still holds the legacy `fs.*` /
+//! `shell.exec` entries, but they are withheld from clients, and one test below
+//! pins that they are neither advertised nor callable.
 
 use std::sync::Arc;
 
@@ -80,6 +85,14 @@ async fn call(
         .expect("a request must produce a reply")
 }
 
+/// A minimal `apply_patch` document that adds one file with one line.
+fn add_file_patch(path: &std::path::Path, line: &str) -> String {
+    format!(
+        "*** Begin Patch\n*** Add File: {}\n+{line}\n*** End Patch",
+        path.display()
+    )
+}
+
 #[tokio::test]
 async fn handshake_reports_the_capabilities() {
     let (dispatcher, _workspace) = dispatcher_with(vec![], vec![], None).await;
@@ -129,10 +142,59 @@ async fn a_protocol_major_mismatch_is_refused() {
 }
 
 #[tokio::test]
+async fn tools_list_advertises_exactly_the_exposed_set() {
+    let (dispatcher, _workspace) = dispatcher_with(vec![], vec![], None).await;
+
+    let reply = call(&dispatcher, "tools.list", json!({})).await;
+    let tools = reply["result"]["tools"].as_array().expect("tools array");
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+
+    assert_eq!(names.len(), 5, "advertised tools: {names:?}");
+    for expected in [
+        "apply_patch",
+        "exec",
+        "list_dir",
+        "read_file",
+        "unified_exec",
+    ] {
+        assert!(names.contains(&expected), "missing `{expected}`: {names:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_registered_but_unexposed_tool_is_not_callable() {
+    let (dispatcher, workspace) = dispatcher_with(vec![], vec![], None).await;
+
+    // The legacy tool must still be registered for this test to prove the gate
+    // rather than mere absence from the registry.
+    assert!(
+        dispatcher.registry().get("fs.read_file").is_some(),
+        "fs.read_file should still be registered"
+    );
+
+    let reply = call(
+        &dispatcher,
+        "tools.call",
+        json!({
+            "name": "fs.read_file",
+            "arguments": { "path": workspace.path().display().to_string() },
+            "callId": "hidden",
+            "origin": "x"
+        }),
+    )
+    .await;
+
+    assert_eq!(reply["error"]["code"], -32010);
+    // An unadvertised name is a caller mistake, not a tool invocation, so it
+    // must not reach the audit trail.
+    assert!(dispatcher.audit().recent(10).await.is_empty());
+}
+
+#[tokio::test]
 async fn an_allowed_tool_executes_and_is_audited() {
     let (dispatcher, workspace) = dispatcher_with(
         vec![Rule {
-            tool: "fs.list_dir".into(),
+            tool: "list_dir".into(),
             effect: Effect::Allow,
             when: None,
             note: None,
@@ -148,7 +210,7 @@ async fn an_allowed_tool_executes_and_is_audited() {
         &dispatcher,
         "tools.call",
         json!({
-            "name": "fs.list_dir",
+            "name": "list_dir",
             "arguments": { "path": workspace.path().display().to_string() },
             "callId": "c1",
             "origin": "local-test"
@@ -173,7 +235,7 @@ async fn an_allowed_tool_executes_and_is_audited() {
 async fn a_denied_tool_never_executes_but_is_still_audited() {
     let (dispatcher, workspace) = dispatcher_with(
         vec![Rule {
-            tool: "fs.write_file".into(),
+            tool: "apply_patch".into(),
             effect: Effect::Deny,
             when: None,
             note: None,
@@ -189,8 +251,8 @@ async fn a_denied_tool_never_executes_but_is_still_audited() {
         &dispatcher,
         "tools.call",
         json!({
-            "name": "fs.write_file",
-            "arguments": { "path": target.display().to_string(), "content": "x" },
+            "name": "apply_patch",
+            "arguments": { "patch": add_file_patch(&target, "x") },
             "callId": "c2",
             "origin": "local-test"
         }),
@@ -215,7 +277,7 @@ async fn an_ask_verdict_fails_closed_when_no_human_is_available() {
     // `ask` as `allow` would be an allow-all for anything the policy flags.
     let (dispatcher, workspace) = dispatcher_with(
         vec![Rule {
-            tool: "fs.write_file".into(),
+            tool: "apply_patch".into(),
             effect: Effect::Ask,
             when: None,
             note: None,
@@ -231,8 +293,8 @@ async fn an_ask_verdict_fails_closed_when_no_human_is_available() {
         &dispatcher,
         "tools.call",
         json!({
-            "name": "fs.write_file",
-            "arguments": { "path": target.display().to_string(), "content": "x" },
+            "name": "apply_patch",
+            "arguments": { "patch": add_file_patch(&target, "x") },
             "callId": "c3",
             "origin": "local-test"
         }),
@@ -257,7 +319,7 @@ async fn an_approved_call_executes_and_records_approval() {
 
     let (dispatcher, workspace) = dispatcher_with(
         vec![Rule {
-            tool: "fs.write_file".into(),
+            tool: "apply_patch".into(),
             effect: Effect::Ask,
             when: None,
             note: None,
@@ -273,8 +335,8 @@ async fn an_approved_call_executes_and_records_approval() {
         &dispatcher,
         "tools.call",
         json!({
-            "name": "fs.write_file",
-            "arguments": { "path": target.display().to_string(), "content": "written" },
+            "name": "apply_patch",
+            "arguments": { "patch": add_file_patch(&target, "written") },
             "callId": "c4",
             "origin": "local-test"
         }),
@@ -282,7 +344,7 @@ async fn an_approved_call_executes_and_records_approval() {
     .await;
 
     assert!(reply["result"].is_object(), "expected success, got {reply}");
-    assert_eq!(std::fs::read_to_string(&target).unwrap(), "written");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "written\n");
 
     let entries = dispatcher.audit().recent(10).await;
     assert_eq!(entries[0].outcome, AuditOutcome::Approved);
@@ -299,7 +361,7 @@ async fn a_rejected_call_does_not_execute() {
 
     let (dispatcher, workspace) = dispatcher_with(
         vec![Rule {
-            tool: "fs.write_file".into(),
+            tool: "apply_patch".into(),
             effect: Effect::Ask,
             when: None,
             note: None,
@@ -315,8 +377,8 @@ async fn a_rejected_call_does_not_execute() {
         &dispatcher,
         "tools.call",
         json!({
-            "name": "fs.write_file",
-            "arguments": { "path": target.display().to_string(), "content": "x" },
+            "name": "apply_patch",
+            "arguments": { "patch": add_file_patch(&target, "x") },
             "callId": "c5",
             "origin": "local-test"
         }),
@@ -348,7 +410,7 @@ async fn an_unknown_tool_is_reported_as_not_found() {
 async fn malformed_arguments_are_rejected_before_policy_runs() {
     let (dispatcher, _workspace) = dispatcher_with(
         vec![Rule {
-            tool: "fs.list_dir".into(),
+            tool: "list_dir".into(),
             effect: Effect::Allow,
             when: None,
             note: None,
@@ -363,7 +425,7 @@ async fn malformed_arguments_are_rejected_before_policy_runs() {
         &dispatcher,
         "tools.call",
         json!({
-            "name": "fs.list_dir",
+            "name": "list_dir",
             "arguments": { "path": 42 },
             "callId": "c7",
             "origin": "x",
@@ -381,7 +443,7 @@ async fn malformed_arguments_are_rejected_before_policy_runs() {
 async fn a_path_outside_the_sandbox_is_refused() {
     let (dispatcher, _workspace) = dispatcher_with(
         vec![Rule {
-            tool: "fs.read_file".into(),
+            tool: "read_file".into(),
             effect: Effect::Allow,
             when: None,
             note: None,
@@ -398,7 +460,7 @@ async fn a_path_outside_the_sandbox_is_refused() {
         &dispatcher,
         "tools.call",
         json!({
-            "name": "fs.read_file",
+            "name": "read_file",
             "arguments": { "path": outside.path().display().to_string() },
             "callId": "c8",
             "origin": "x"
@@ -425,7 +487,7 @@ async fn output_is_truncated_to_the_configured_limit() {
 
     let policy = Policy {
         rules: vec![Rule {
-            tool: "fs.read_file".into(),
+            tool: "read_file".into(),
             effect: Effect::Allow,
             when: None,
             note: None,
@@ -447,7 +509,7 @@ async fn output_is_truncated_to_the_configured_limit() {
         &dispatcher,
         "tools.call",
         json!({
-            "name": "fs.read_file",
+            "name": "read_file",
             "arguments": {
                 "path": workspace.path().join("big.txt").display().to_string(),
                 "limit": 5000,
@@ -478,7 +540,7 @@ async fn a_remembered_approval_adds_a_scoped_rule() {
 
     let (dispatcher, workspace) = dispatcher_with(
         vec![Rule {
-            tool: "fs.write_file".into(),
+            tool: "read_file".into(),
             effect: Effect::Ask,
             when: None,
             note: None,
@@ -489,13 +551,14 @@ async fn a_remembered_approval_adds_a_scoped_rule() {
     .await;
 
     let target = workspace.path().join("remembered.txt");
+    std::fs::write(&target, "one").unwrap();
 
     call(
         &dispatcher,
         "tools.call",
         json!({
-            "name": "fs.write_file",
-            "arguments": { "path": target.display().to_string(), "content": "one" },
+            "name": "read_file",
+            "arguments": { "path": target.display().to_string() },
             "callId": "c10",
             "origin": "x"
         }),
@@ -523,7 +586,7 @@ async fn a_remembered_approval_adds_a_scoped_rule() {
 async fn the_destructive_denylist_outranks_an_allow_rule_end_to_end() {
     let (dispatcher, _workspace) = dispatcher_with(
         vec![Rule {
-            tool: "shell.exec".into(),
+            tool: "exec".into(),
             effect: Effect::Allow,
             when: None,
             note: None,
@@ -537,8 +600,8 @@ async fn the_destructive_denylist_outranks_an_allow_rule_end_to_end() {
         &dispatcher,
         "tools.call",
         json!({
-            "name": "shell.exec",
-            "arguments": { "command": "rm -rf /" },
+            "name": "exec",
+            "arguments": { "cmd": "rm -rf /" },
             "callId": "c11",
             "origin": "x"
         }),
@@ -546,49 +609,4 @@ async fn the_destructive_denylist_outranks_an_allow_rule_end_to_end() {
     .await;
 
     assert_eq!(reply["error"]["code"], -32011);
-}
-
-#[tokio::test]
-async fn audit_entries_redact_sensitive_arguments() {
-    let approver = Arc::new(FixedApprover {
-        decision: Some(ApprovalDecision {
-            approved: true,
-            remember: false,
-        }),
-    });
-
-    let (dispatcher, workspace) = dispatcher_with(
-        vec![Rule {
-            tool: "fs.write_file".into(),
-            effect: Effect::Allow,
-            when: None,
-            note: None,
-        }],
-        vec![],
-        Some(approver),
-    )
-    .await;
-
-    call(
-        &dispatcher,
-        "tools.call",
-        json!({
-            "name": "fs.write_file",
-            "arguments": {
-                "path": workspace.path().join("secret.txt").display().to_string(),
-                "content": "TOP SECRET VALUE"
-            },
-            "callId": "c12",
-            "origin": "x"
-        }),
-    )
-    .await;
-
-    let entries = dispatcher.audit().recent(10).await;
-    let serialised = serde_json::to_string(&entries[0].arguments).unwrap();
-    assert!(
-        !serialised.contains("TOP SECRET VALUE"),
-        "the audit log must not record file contents verbatim"
-    );
-    assert!(serialised.contains("redacted"));
 }

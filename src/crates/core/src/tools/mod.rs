@@ -12,6 +12,14 @@ pub mod fs;
 pub mod http;
 pub mod shell;
 
+/// Category prefix that marks a descriptor as part of the client-facing set.
+const EXPOSED_CATEGORY_PREFIX: &str = "codex-";
+
+/// Whether a descriptor belongs to the set advertised to clients.
+fn is_exposed_descriptor(descriptor: &ToolDescriptor) -> bool {
+    descriptor.category.starts_with(EXPOSED_CATEGORY_PREFIX)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DefaultEffect {
@@ -164,11 +172,23 @@ impl ToolRegistry {
     pub fn require(&self, n: &str) -> Result<&Arc<dyn Tool>> {
         self.get(n).ok_or_else(|| BridgeError::tool_not_found(n))
     }
+    /// Whether a tool is part of the client-facing set.
+    ///
+    /// `get` and `require` see every registered tool, including ones that are
+    /// deliberately withheld from clients. A caller that turns an untrusted name
+    /// into an execution must gate on this first, or `tools.call` becomes a way
+    /// to reach a tool that `tools.list` never advertises.
+    pub fn is_exposed(&self, name: &str) -> bool {
+        self.tools
+            .get(name)
+            .is_some_and(|tool| is_exposed_descriptor(&tool.descriptor()))
+    }
+
     /// Descriptors for the tools exposed to clients: the Codex-compatible set.
     pub fn descriptors(&self) -> Vec<ToolDescriptor> {
         self.tools
             .values()
-            .filter(|t| t.descriptor().category.starts_with("codex-"))
+            .filter(|t| is_exposed_descriptor(&t.descriptor()))
             .map(|t| t.descriptor())
             .collect()
     }
