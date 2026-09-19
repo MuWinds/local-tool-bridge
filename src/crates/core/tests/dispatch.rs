@@ -6,9 +6,9 @@
 //! dispatcher that forgets to consult it.
 //!
 //! Calls go through the client-facing tool names (`read_file`, `list_dir`,
-//! `exec`, `apply_patch`). The registry still holds the legacy `fs.*` /
-//! `shell.exec` entries, but they are withheld from clients, and one test below
-//! pins that they are neither advertised nor callable.
+//! `exec`, `unified_exec`, `apply_patch`). The registry advertises exactly that
+//! set; one test registers an internal implementation directly to pin that a
+//! withheld tool is neither advertised nor callable.
 
 use std::sync::Arc;
 
@@ -163,14 +163,30 @@ async fn tools_list_advertises_exactly_the_exposed_set() {
 
 #[tokio::test]
 async fn a_registered_but_unexposed_tool_is_not_callable() {
-    let (dispatcher, workspace) = dispatcher_with(vec![], vec![], None).await;
+    let workspace = tempfile::tempdir().expect("temp dir");
 
-    // The legacy tool must still be registered for this test to prove the gate
-    // rather than mere absence from the registry.
+    // `fs.read_file` is the internal implementation behind `read_file` and is
+    // deliberately not part of the advertised set. Registering it directly
+    // reproduces "registered but withheld", which is the case the gate covers.
+    let mut registry = ToolRegistry::with_builtins();
+    registry.register(Arc::new(ltb_core::tools::fs::ReadFile));
     assert!(
-        dispatcher.registry().get("fs.read_file").is_some(),
-        "fs.read_file should still be registered"
+        registry.get("fs.read_file").is_some(),
+        "fs.read_file should be registered for this test to prove the gate"
     );
+
+    let policy = Policy {
+        rules: vec![],
+        roots: vec![workspace.path().display().to_string()],
+        ..Policy::default()
+    };
+    let dispatcher = Dispatcher::new(
+        Arc::new(registry),
+        PolicyEngine::new(policy).expect("policy must compile"),
+        Arc::new(AuditLog::in_memory()),
+        None,
+    )
+    .expect("dispatcher");
 
     let reply = call(
         &dispatcher,

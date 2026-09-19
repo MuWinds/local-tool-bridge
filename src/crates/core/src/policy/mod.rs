@@ -105,36 +105,6 @@ impl Default for Policy {
             revision: 0,
             rules: vec![
                 Rule {
-                    tool: "fs.list_dir".into(),
-                    effect: Effect::Allow,
-                    when: None,
-                    note: None,
-                },
-                Rule {
-                    tool: "fs.search".into(),
-                    effect: Effect::Allow,
-                    when: None,
-                    note: None,
-                },
-                Rule {
-                    tool: "fs.read_file".into(),
-                    effect: Effect::Ask,
-                    when: None,
-                    note: None,
-                },
-                Rule {
-                    tool: "fs.write_file".into(),
-                    effect: Effect::Ask,
-                    when: None,
-                    note: None,
-                },
-                Rule {
-                    tool: "shell.exec".into(),
-                    effect: Effect::Ask,
-                    when: None,
-                    note: None,
-                },
-                Rule {
                     tool: "read_file".into(),
                     effect: Effect::Ask,
                     when: None,

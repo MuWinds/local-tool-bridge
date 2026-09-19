@@ -145,15 +145,16 @@ pub struct ToolRegistry {
     tools: BTreeMap<String, Arc<dyn Tool>>,
 }
 impl ToolRegistry {
+    /// The registry every transport starts from: exactly the tools advertised to
+    /// clients, and nothing else.
+    ///
+    /// The `fs`/`shell` implementations still exist, but they are internal: the
+    /// Codex wrappers call them directly, so registering them here would only
+    /// add names that `tools.list` never shows and `tools.call` must reject.
     pub fn with_builtins() -> Self {
         let mut r = Self {
             tools: BTreeMap::new(),
         };
-        r.register(Arc::new(fs::ReadFile));
-        r.register(Arc::new(fs::WriteFile));
-        r.register(Arc::new(fs::ListDir));
-        r.register(Arc::new(fs::Search));
-        r.register(Arc::new(shell::Exec));
         r.register(Arc::new(codex::ReadFile));
         r.register(Arc::new(codex::ListDir));
         r.register(Arc::new(codex::Exec));

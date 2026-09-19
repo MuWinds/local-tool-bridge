@@ -613,30 +613,26 @@ fn handle_tools_list(dispatcher: &Arc<Dispatcher>) -> Value {
 }
 
 /// Translates one bridge descriptor into an MCP tool definition.
+///
+/// The name is used verbatim: every advertised tool name already satisfies the
+/// MCP pattern `^[a-zA-Z0-9_-]{1,64}$`, so no rewriting is needed.
 fn mcp_tool(descriptor: &ToolDescriptor) -> Value {
     json!({
-        "name": mcp_name(&descriptor.name),
+        "name": descriptor.name,
         "description": mcp_description(descriptor),
         "inputSchema": descriptor.input_schema,
     })
 }
 
-/// The MCP tool-name pattern is `^[a-zA-Z0-9_-]{1,64}$`, which forbids the
-/// dots the bridge uses (`fs.read_file`). Underscores are a lossless
-/// substitution for every built-in name and are what the model will call.
-fn mcp_name(bridge_name: &str) -> String {
-    bridge_name.replace('.', "_")
-}
-
-/// Reverses [`mcp_name`] by consulting the registry, so a caller that sends the
-/// dotted bridge name directly is still served.
+/// Resolves a client-supplied tool name against the advertised set.
+///
+/// A name the model invents resolves to `None` and is rejected before anything
+/// is dispatched.
 fn bridge_name<'a>(descriptors: &'a [ToolDescriptor], candidate: &str) -> Option<&'a str> {
-    for descriptor in descriptors {
-        if descriptor.name == candidate || mcp_name(&descriptor.name) == candidate {
-            return Some(&descriptor.name);
-        }
-    }
-    None
+    descriptors
+        .iter()
+        .find(|descriptor| descriptor.name == candidate)
+        .map(|descriptor| descriptor.name.as_str())
 }
 
 /// Builds the description ChatGPT/Codex will read. Starts from the bridge
@@ -648,7 +644,7 @@ fn mcp_description(descriptor: &ToolDescriptor) -> String {
         text.push_str("\n\nThis tool may require human approval before it executes.");
     }
 
-    if descriptor.name.starts_with("fs.") {
+    if descriptor.category == "codex-filesystem" {
         text.push_str(
             "\nPaths must be absolute. On Windows, prefer forward slashes (C:/Users/...) \
              over backslashes.",
@@ -678,7 +674,7 @@ async fn handle_tools_call(
         .cloned()
         .unwrap_or_else(|| json!({}));
 
-    // Resolve the MCP name back to a bridge name. Names the model invents are
+    // Resolve the name against the advertised set. Names the model invents are
     // rejected here, before anything is dispatched.
     let descriptors = dispatcher.registry().descriptors();
     let bridge = bridge_name(&descriptors, name)
@@ -778,19 +774,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mcp_names_are_safe_and_reversible() {
-        assert_eq!(mcp_name("fs.read_file"), "fs_read_file");
-        assert_eq!(mcp_name("shell.exec"), "shell_exec");
-        assert_eq!(mcp_name("http.request"), "http_request");
-    }
-
-    #[test]
-    fn bridge_name_accepts_both_spellings() {
+    fn bridge_name_matches_exactly() {
         let descriptors = vec![ToolDescriptor {
-            name: "fs.read_file".into(),
+            name: "read_file".into(),
             summary: "s".into(),
             description: "d".into(),
-            category: "fs".into(),
+            category: "codex-filesystem".into(),
             input_schema: ltb_core::tools::ObjectSchema {
                 schema_type: "object".into(),
                 properties: Default::default(),
@@ -801,24 +790,21 @@ mod tests {
             latency_hint: "instant".into(),
         }];
 
-        assert_eq!(
-            bridge_name(&descriptors, "fs_read_file"),
-            Some("fs.read_file")
-        );
-        assert_eq!(
-            bridge_name(&descriptors, "fs.read_file"),
-            Some("fs.read_file")
-        );
+        assert_eq!(bridge_name(&descriptors, "read_file"), Some("read_file"));
+        // An internal implementation's name is not advertised, so it must not
+        // resolve even though the registry holds it.
+        assert_eq!(bridge_name(&descriptors, "fs.read_file"), None);
+        assert_eq!(bridge_name(&descriptors, "fs_read_file"), None);
         assert_eq!(bridge_name(&descriptors, "nope"), None);
     }
 
     #[test]
     fn tool_shape_is_mcp_compliant() {
         let descriptor = ToolDescriptor {
-            name: "fs.read_file".into(),
+            name: "read_file".into(),
             summary: "Read a file".into(),
             description: "Reads a UTF-8 text file from disk.".into(),
-            category: "fs".into(),
+            category: "codex-filesystem".into(),
             input_schema: ltb_core::tools::ObjectSchema {
                 schema_type: "object".into(),
                 properties: serde_json::from_value(json!({
@@ -833,7 +819,7 @@ mod tests {
         };
 
         let tool = mcp_tool(&descriptor);
-        assert_eq!(tool["name"], "fs_read_file");
+        assert_eq!(tool["name"], "read_file");
         assert_eq!(tool["inputSchema"]["type"], "object");
         assert_eq!(tool["inputSchema"]["required"], json!(["path"]));
         let description = tool["description"].as_str().unwrap();
