@@ -12,8 +12,8 @@
 
 1. 打开 [Tunnels 设置页](https://platform.openai.com/settings/organization/tunnels)，选择**当前的账号和工作区**，创建一条 Tunnel，记下以 `tunnel_` 开头的 **Tunnel ID**
 2. 打开 [API Keys 设置页](https://platform.openai.com/settings/organization/api-keys)，创建一条 **Runtime API key**（权限需包含 Tunnels Read + Use），记下以 `sk-` 开头的值。
-
 > 需要能登录 platform.openai.com 且具备 Tunnels 权限的账号（组织管理员可以创建）。
+3. 打开 ChatGPT 的开发者模式 
 
 ## 第 2 步：在控制面板里启用隧道
 
@@ -42,6 +42,8 @@
 > 读取 C:\Users\me\project\README.md 并总结。
 
 涉及「需确认」工具的调用，控制面板会弹出审批框，你可以选择「拒绝 / 仅本次允许 / 始终允许」。
+
+后续使用只需要打开软件和 ChatGPT 网页端即可，不需要做那么多次设置了。
 
 ## 安全说明
 
