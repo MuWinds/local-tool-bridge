@@ -37,7 +37,7 @@ node scripts/smoke-mcp.mjs
 ```text
 local-tool-bridge/
 ├── README.md                    # 用户视角的使用、能力与安全说明
-├── docs/                        # ChatGPT/MCP 接入与外部 MCP server 文档
+├── docs/                        # ChatGPT/MCP 接入、Direct Remote MCP 与 Tunnel 文档
 ├── scripts/                     # HTTP/MCP 端到端冒烟脚本
 ├── .github/workflows/           # CI 与 release pipeline
 └── src/                         # Rust workspace
@@ -45,7 +45,7 @@ local-tool-bridge/
     ├── rustfmt.toml
     └── crates/
         ├── core/                # 策略、路径沙箱、工具、调度、审计；保持传输无关
-        ├── host/                # HTTP/WebSocket/MCP 传输、外部 MCP、Secure MCP Tunnel
+        ├── host/                # HTTP/WebSocket/MCP 传输、Direct Remote MCP/OAuth、Secure MCP Tunnel
         └── gui/                 # egui 控制面板、审批交互与桌面集成
 ```
 
@@ -72,7 +72,7 @@ pub fn require(&self, name: &str) -> Result<&Arc<dyn Tool>> {
 
 - 先检查 `git status`，不要覆盖或清理与当前任务无关的工作区修改。
 - 保持提交粒度小而单一：一个提交解决一个逻辑问题，尤其不要把格式化大改与功能修改混在一起。
-- 提交消息沿用仓库现有风格：简短、以动词开头、描述实际变更，例如 `Fix CI formatting and clippy lint`。
+- 提交消息沿用仓库现有风格：简短、以动词开头、描述实际变更；标题与正文使用中文，例如 `修复 CI 格式化与 clippy 告警`。
 - 提交前至少运行与改动相关的格式化、Clippy 和测试；涉及跨平台代码时优先跑完整 workspace 检查。
 - 不要提交 `src/target/`、本地配置、运行时审计日志、连接令牌或其他生成物；以仓库现有 `.gitignore` 和 CI 产物规则为准。
 - Release 通过 `v*` tag 触发 GitHub Actions，不要手工把 release archive 放进源码树。
@@ -85,9 +85,9 @@ pub fn require(&self, name: &str) -> Result<&Arc<dyn Tool>> {
 
 ## Boundaries
 
-- 不要削弱或绕过安全策略来让开发测试更方便。尤其是破坏性 Shell denylist、路径沙箱、私网拦截、审批机制和审计必须保持在策略/调度链路中。
+- 不要削弱或绕过安全策略来让开发测试更方便。尤其是破坏性 Shell denylist、路径沙箱、审批机制和审计必须保持在策略/调度链路中。
 - 新增文件或修改文件访问逻辑时，必须继续经过 `PolicyEngine` / `PathSandbox`；不能通过绝对路径、`..`、符号链接或其他路径拼接方式绕出已授权 roots。
-- 不要把私有网络、外部 HTTP host 或任意 Shell 权限默认改成允许；默认行为应继续遵循现有 policy，破坏性命令即使配置为 allow 也必须被拒绝。
+- 不要把任意 Shell 权限默认改成允许；默认行为应继续遵循现有 policy，破坏性命令即使配置为 allow 也必须被拒绝。
 - `core` 必须保持 transport-agnostic 且不依赖 GUI/platform-specific windowing code。
 - 对外 MCP 暴露的工具集合是稳定的 Codex-compatible 五工具集合：`read_file`、`list_dir`、`exec`、`unified_exec`、`apply_patch`。不要因为内部新增工具就自动扩大外部暴露面。
 - 不要把连接令牌、Runtime API Key、策略文件或审计数据写入源码、测试 fixture 或日志输出；敏感配置使用应用的用户配置目录。
